@@ -1,16 +1,16 @@
-"""Unit tests for ditto version."""
+"""Unit tests for nuclearff version."""
 
 from __future__ import annotations
 
-import ditto
+import nuclearff
 
 
 def test_version_exists():
     """__version__ is defined."""
-    assert hasattr(ditto, "__version__")
+    assert hasattr(nuclearff, "__version__")
 
 
 def test_version_string():
     """__version__ is a non-empty string."""
-    assert isinstance(ditto.__version__, str)
-    assert ditto.__version__
+    assert isinstance(nuclearff.__version__, str)
+    assert nuclearff.__version__

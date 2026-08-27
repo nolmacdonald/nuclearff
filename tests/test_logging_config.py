@@ -1,11 +1,11 @@
-"""Unit tests for ditto.logging_config module."""
+"""Unit tests for nuclearff.logging_config module."""
 
 from __future__ import annotations
 
 import logging
 import sys
 
-from ditto.logging_config import configure_logging
+from nuclearff.logging_config import configure_logging
 
 
 def _stream_handlers(logger: logging.Logger) -> list[logging.StreamHandler]:
