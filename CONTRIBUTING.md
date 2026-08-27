@@ -1,16 +1,16 @@
-# Contributing to ditto
+# Contributing to nuclearff
 
 Thank you for your interest in contributing! This guide walks through the
-development workflow for ditto.
+development workflow for nuclearff.
 
 ## Development Setup
 
-ditto uses [uv](https://docs.astral.sh/uv/) for dependency management.
+nuclearff uses [uv](https://docs.astral.sh/uv/) for dependency management.
 
 ```bash
 # Clone the repository
-git clone https://github.com/nolmacdonald/ditto.git
-cd ditto
+git clone https://github.com/nolmacdonald/nuclearff.git
+cd nuclearff
 
 # Create the virtual environment and install dev dependencies
 uv sync --extra dev
@@ -47,15 +47,14 @@ uv run pytest
 Build the documentation locally:
 
 ```bash
-cd docs
-uv run sphinx-build -b html . _build/html
+uv run sphinx-build -b html docs/source docs/_build/html
 ```
 
 Open `docs/_build/html/index.html` in a browser.
 
 ## Pull Request Process
 
-1. Fork the repository and create a feature branch.
+1. Create a feature branch.
 2. Write tests for your changes.
 3. Ensure all checks pass (`ruff`, `ty`, `pytest`).
 4. Open a pull request using the provided template.

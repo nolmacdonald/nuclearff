@@ -1,14 +1,18 @@
 # News
 
-## ditto 0.1.0
+## nuclearff 0.1.0 (unreleased)
 
-Released: 2025-01-01
+Initial scaffold of **nuclearff** — Nuclear Fantasy Football.
 
-Initial release of **ditto** — Development Infrastructure Template Tool for Optimization.
+nuclearff is a Python package for fantasy football research and analysis,
+built on:
 
-ditto provides a fully configured Python package template with:
+- [nflreadpy](https://github.com/nflverse/nflreadpy) for nflverse NFL data
+- [Sleeper API](https://docs.sleeper.com) for league, roster, and matchup data
 
-- `src/` layout with hatchling build backend
+Project tooling:
+
+- `src/` layout with the `uv_build` build backend
 - Ruff for formatting and linting
 - `ty` for type checking
 - `uv` for virtual environment and dependency management
