@@ -13,7 +13,7 @@ body:
     attributes:
       label: Documentation location
       description: URL or file path of the affected documentation.
-      placeholder: "e.g. https://nolmacdonald.github.io/ditto/api/index.html"
+      placeholder: "e.g. https://nolmacdonald.github.io/nuclearff/api/index.html"
     validations:
       required: false
 

@@ -1,5 +1,5 @@
 name: Feature Request
-description: Propose a new feature or enhancement for ditto.
+description: Propose a new feature or enhancement for nuclearff.
 title: "feat: "
 labels: ["type::feature", "status::needs-triage"]
 body:

@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a bug or unexpected behaviour in ditto.
+description: Report a bug or unexpected behavior in nuclearff.
 title: "bug: "
 labels: ["type::bug", "status::needs-triage"]
 body:
@@ -25,8 +25,11 @@ body:
       description: Provide a minimal reproducible example.
       placeholder: |
         ```python
-        from ditto.example import ExampleClass
-        obj = ExampleClass(...)
+        import nflreadpy as nfl
+
+        import nuclearff
+
+        # ... minimal code that triggers the bug
         ```
     validations:
       required: true
@@ -34,7 +37,7 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: Expected behaviour
+      label: Expected behavior
       description: What did you expect to happen?
     validations:
       required: true
@@ -42,7 +45,7 @@ body:
   - type: textarea
     id: actual
     attributes:
-      label: Actual behaviour
+      label: Actual behavior
       description: What actually happened?
     validations:
       required: true
@@ -50,7 +53,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: ditto version
+      label: nuclearff version
       placeholder: "e.g. 0.1.0"
     validations:
       required: true
