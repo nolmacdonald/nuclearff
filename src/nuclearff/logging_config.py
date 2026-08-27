@@ -25,24 +25,17 @@ def configure_logging(
     Mirrors the semantics of :func:`logging.basicConfig`: if the root logger
     already has handlers, this function is a no-op unless ``force=True``.
 
-    Parameters
-    ----------
-    level : int, optional
-        Logging level (e.g. ``logging.DEBUG``, ``logging.INFO``), by default
-        ``logging.INFO``.
-    fmt : str, optional
-        Log record format string accepted by :class:`logging.Formatter`.
-    datefmt : str, optional
-        Date/time format string for the formatter.
-    force : bool, optional
-        When ``True``, remove any existing handlers before configuring.
-        Use this to reconfigure logging in scripts that may have pre-existing
-        handlers. By default ``False``.
+    Args:
+        level: Logging level, such as ``logging.DEBUG`` or ``logging.INFO``.
+        fmt: Log record format string accepted by :class:`logging.Formatter`.
+        datefmt: Date/time format string for the formatter.
+        force: When ``True``, remove any existing handlers before configuring.
+            Use this to reconfigure logging in scripts that may have
+            pre-existing handlers.
 
-    Examples
-    --------
-    >>> from nuclearff.logging_config import configure_logging
-    >>> configure_logging(level=logging.DEBUG)
+    Examples:
+        >>> from nuclearff.logging_config import configure_logging
+        >>> configure_logging(level=logging.DEBUG)
     """
     root_logger = logging.getLogger()
 
