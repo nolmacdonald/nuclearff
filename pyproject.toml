@@ -1,18 +1,43 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.12.3,<0.13"]
+build-backend = "uv_build"
 
 [project]
-name = "ditto"
+name = "nuclearff"
 version = "0.1.0"
-description = "Development Infrastructure Template Tool for Optimization"
+description = "Nuclear Fantasy Football"
+readme = "README.md"
 requires-python = ">=3.11"
+authors = [{ name = "Nolan MacDonald" }]
+maintainers = [{ name = "Nolan MacDonald" }]
+keywords = [
+    "fantasy-football",
+    "nfl",
+    "nflverse",
+    "nflreadpy",
+    "sleeper",
+    "sports-analytics",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Private :: Do Not Upload",
+]
 dependencies = [
     "numpy",
     "matplotlib",
     "pandas",
     "scipy",
     "pint",
+    "nflreadpy>=0.1.5",
+    "polars>=0.20.0",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -30,8 +55,16 @@ docs = [
     "myst-parser",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/ditto"]
+[project.urls]
+Homepage = "https://github.com/nolmacdonald/nuclearff"
+Documentation = "https://nolmacdonald.github.io/nuclearff"
+Repository = "https://github.com/nolmacdonald/nuclearff"
+Issues = "https://github.com/nolmacdonald/nuclearff/issues"
+Changelog = "https://github.com/nolmacdonald/nuclearff/blob/main/CHANGELOG.md"
+
+[tool.uv.build-backend]
+module-name = "nuclearff"
+module-root = "src"
 
 [tool.ruff]
 line-length = 88
@@ -48,7 +81,7 @@ indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=ditto --cov-report=term-missing"
+addopts = "--cov=nuclearff --cov-report=term-missing"
 
-[tool.ty]
+[tool.ty.environment]
 python-version = "3.11"
