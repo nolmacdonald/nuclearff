@@ -1,7 +1,7 @@
-﻿ditto
-=====
+nuclearff
+=========
 
-.. automodule:: ditto
+.. automodule:: nuclearff
 
    
 .. rubric:: Modules
@@ -10,5 +10,4 @@
    :toctree:
    :recursive:
 
-   example
    logging_config

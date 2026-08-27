@@ -7,4 +7,4 @@ API Reference
    :toctree: generated
    :recursive:
 
-   ditto
+   nuclearff

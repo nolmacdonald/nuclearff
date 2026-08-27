@@ -1,13 +1,15 @@
 .. _index:
 
-ditto
-=====
+nuclearff
+=========
 
-**Development Infrastructure Template Tool for Optimization**
+**Nuclear Fantasy Football**
 
-ditto is a Python package template that provides a robust starting point for
-scientific Python projects. It bundles best-practice tooling for formatting,
-type checking, testing, and documentation out of the box.
+nuclearff is a Python package for fantasy football research and analysis. It
+pulls NFL play-by-play, roster, and statistics data through the `nflverse
+<https://github.com/nflverse>`_ ecosystem via `nflreadpy
+<https://github.com/nflverse/nflreadpy>`_, and league, roster, and matchup data
+through the `Sleeper API <https://docs.sleeper.com>`_.
 
 .. grid:: 2
    :gutter: 3
@@ -16,7 +18,7 @@ type checking, testing, and documentation out of the box.
       :link: getting_started
       :link-type: doc
 
-      New to ditto? Start here for installation and a quick overview.
+      New to nuclearff? Start here for installation and a quick overview.
 
    .. grid-item-card:: API Reference
       :link: api/index

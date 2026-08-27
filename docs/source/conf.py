@@ -1,4 +1,4 @@
-"""Sphinx configuration for ditto documentation."""
+"""Sphinx configuration for nuclearff documentation."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # -- Project information ------------------------------------------------------
-project = "ditto"
+project = "nuclearff"
 copyright = "2026, Nolan MacDonald. All Rights Reserved"  # noqa: A001
 author = "Nolan MacDonald"
 # Derive release from the installed package to avoid version drift.
-release = _pkg_version("ditto")
+release = _pkg_version("nuclearff")
 
 # -- General configuration ----------------------------------------------------
 extensions = [
@@ -57,6 +57,7 @@ intersphinx_mapping = {
     "pandas": ("https://pandas.pydata.org/docs", None),
     "matplotlib": ("https://matplotlib.org/stable", None),
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
+    "polars": ("https://docs.pola.rs/api/python/stable", None),
 }
 
 # -- HTML output options ------------------------------------------------------
@@ -64,8 +65,8 @@ html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_css_files = ["css/custom.css"]
 
-html_logo = "_static/logo/icon.svg"
-html_favicon = "_static/logo/icon.svg"
+html_logo = "_static/logo/nuclearff-light-color.svg"
+html_favicon = "_static/logo/nuclearff-light-color.svg"
 
 html_theme_options = {
     "navbar_start": ["navbar-logo"],
@@ -77,7 +78,7 @@ html_theme_options = {
     "icon_links": [
         {
             "name": "GitHub",
-            "url": "https://github.com/nolmacdonald/ditto",
+            "url": "https://github.com/nolmacdonald/nuclearff",
             "icon": "fa-brands fa-github",
         },
     ],
@@ -90,7 +91,7 @@ html_theme_options = {
 
 html_context = {
     "github_user": "nolmacdonald",
-    "github_repo": "ditto",
+    "github_repo": "nuclearff",
     "github_version": "main",
     "doc_path": "docs",
 }
