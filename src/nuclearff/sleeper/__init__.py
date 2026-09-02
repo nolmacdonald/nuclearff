@@ -6,6 +6,7 @@ from nuclearff.sleeper.models import (
     LeagueSnapshot,
     SnapshotMetadata,
 )
+from nuclearff.sleeper.players import player_rows, write_players_table
 from nuclearff.sleeper.snapshot import (
     detect_anomalies,
     fetch_league_snapshot,
@@ -19,5 +20,7 @@ __all__ = [
     "SnapshotMetadata",
     "detect_anomalies",
     "fetch_league_snapshot",
+    "player_rows",
+    "write_players_table",
     "write_snapshot",
 ]

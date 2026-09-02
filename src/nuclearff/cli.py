@@ -20,7 +20,12 @@ from nuclearff.config.loader import to_yaml
 from nuclearff.config.models import NuclearffConfig
 from nuclearff.exceptions import NuclearffError
 from nuclearff.logging_config import configure_logging
-from nuclearff.sleeper import SleeperClient, fetch_league_snapshot, write_snapshot
+from nuclearff.sleeper import (
+    SleeperClient,
+    fetch_league_snapshot,
+    write_players_table,
+    write_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +185,29 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_sleeper_fetch_players(args: argparse.Namespace) -> int:
+    """Fetch the Sleeper NFL player map and store it in DuckDB for mapping.
+
+    Args:
+        args: Parsed arguments carrying ``force_refresh``.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+    config.paths.ensure()
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        players = client.get_players(force_refresh=args.force_refresh)
+
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+    count = write_players_table(players, db_path)
+
+    print(f"Players:  {count}")
+    print(f"Database: {db_path}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -248,6 +276,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch.add_argument("--league-id", required=True, help="Sleeper league identifier")
     fetch.set_defaults(func=_cmd_sleeper_fetch_league)
+
+    fetch_players = sleeper_commands.add_parser(
+        "fetch-players", help="Fetch the NFL player map into a local DuckDB table"
+    )
+    fetch_players.add_argument(
+        "--force-refresh",
+        action="store_true",
+        help="Re-fetch even if the on-disk player cache is still fresh",
+    )
+    fetch_players.set_defaults(func=_cmd_sleeper_fetch_players)
 
     return parser
 
