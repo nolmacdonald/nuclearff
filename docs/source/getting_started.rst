@@ -11,15 +11,44 @@ nuclearff is not published to PyPI. Clone the repository and install it with
 
    git clone https://github.com/nolmacdonald/nuclearff.git
    cd nuclearff
-   uv sync
+   uv sync --frozen
 
-Install the development extras to run linting, type checking, and tests::
+``--frozen`` installs exactly what ``uv.lock`` specifies. Install the
+development extras to run linting, type checking, and tests::
 
-   uv sync --extra dev
+   uv sync --frozen --extra dev
 
 For building documentation, install the docs extras::
 
-   uv sync --extra docs
+   uv sync --frozen --extra docs
+
+Configuration
+-------------
+
+Every command reads its settings from a configuration file, so a run can be
+reproduced from a git commit plus a config. Write one populated with the
+documented defaults::
+
+   uv run nuclearff config init
+
+``paths.root`` anchors every managed directory, which means ``--root`` relocates
+the whole tree — that is how the test suite keeps runs off the real data
+directory::
+
+   uv run nuclearff config paths --ensure
+
+Capturing your league
+---------------------
+
+Fetch a complete, immutable snapshot of a Sleeper league::
+
+   uv run nuclearff sleeper fetch-league --league-id 1367225133634191360
+
+The command writes each endpoint to
+``data/raw/sleeper/<league_id>/<timestamp>/`` and never overwrites an existing
+capture. It also reports league settings that are contradictory or that change
+how players should be valued, for example a league whose ``draft_rounds`` field
+disagrees with its draft object, or one that plays the weekly median.
 
 Data Sources
 ------------

@@ -32,5 +32,6 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
 
    getting_started
    api/index
+   decisions
    changelog
    contributing

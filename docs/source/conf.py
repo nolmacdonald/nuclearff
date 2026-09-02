@@ -29,16 +29,21 @@ extensions = [
     "myst_parser",
 ]
 
+# Names re-exported from a package __init__ are documented both there and in
+# the module that defines them, so an unqualified cross-reference has two valid
+# targets. Every other warning class remains fatal under -W.
+suppress_warnings = ["ref.python"]
+
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
-# -- Napoleon (NumPy docstring) settings --------------------------------------
-napoleon_google_docstring = False
-napoleon_numpy_docstring = True
+# -- Napoleon (Google docstring) settings -------------------------------------
+napoleon_google_docstring = True
+napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = True
 napoleon_include_private_with_doc = False
 napoleon_use_admonition_for_examples = False
-napoleon_use_ivar = False
+napoleon_use_ivar = True
 napoleon_use_param = True
 napoleon_use_rtype = True
 

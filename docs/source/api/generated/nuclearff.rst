@@ -10,4 +10,8 @@ nuclearff
    :toctree:
    :recursive:
 
+   cli
+   config
+   exceptions
    logging_config
+   sleeper
