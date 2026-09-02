@@ -40,7 +40,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install docs dependencies
-        run: uv sync --extra docs
+        run: uv sync --frozen --extra docs
 
       - name: Build Sphinx docs
         run: uv run sphinx-build -b html docs/source docs/_build/html -W --keep-going

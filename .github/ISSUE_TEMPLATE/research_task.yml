@@ -1,0 +1,70 @@
+name: Research Task
+description: Investigate a modeling, metric, or methodology question before implementing it.
+title: "research: "
+labels: ["type::research", "status::needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for questions that should be answered with evidence before code is
+        written — metric selection, weighting, baselines, or validation approach.
+        Research issues should produce a decision note under `docs/decisions/` so the
+        reasoning does not live only in issue comments or a notebook.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Research question
+      description: The specific question to answer. State it so the answer can be right or wrong.
+      placeholder: "Does the 50/25/10/15 weighting beat a recency-weighted PPG baseline on 2024 and 2025 top-24 WR ranking?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why this matters
+      description: What downstream decision depends on the answer?
+    validations:
+      required: true
+
+  - type: textarea
+    id: method
+    attributes:
+      label: Proposed method
+      description: Data, seasons, folds, metrics, and baselines to compare against.
+      placeholder: |
+        - Data: load_player_stats([2022, 2023, 2024, 2025])
+        - Folds: fit through 2023 -> predict 2024; fit through 2024 -> predict 2025
+        - Metrics: Spearman, MAE on PPG, top-12 precision, Brier for P(top-12)
+        - Baselines: prior-year PPG, recency-weighted PPG, opportunity-only
+    validations:
+      required: true
+
+  - type: textarea
+    id: leakage
+    attributes:
+      label: Leakage guards
+      description: How will point-in-time correctness be enforced? Note any manual 2026 context deltas that must be excluded from historical folds.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What must exist for this issue to close?
+      placeholder: |
+        - [ ] Decision note committed under docs/decisions/
+        - [ ] Fold results written to data/artifacts/backtests/
+        - [ ] A recommendation with the threshold that would reverse it
+    validations:
+      required: true
+
+  - type: textarea
+    id: nongoals
+    attributes:
+      label: Non-goals
+      description: What this issue explicitly does not cover.
+    validations:
+      required: false

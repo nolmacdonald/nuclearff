@@ -1,0 +1,65 @@
+name: Data Source
+description: Propose adding, replacing, or fixing a data source or loader.
+title: "data: "
+labels: ["type::feature", "area::data", "status::needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every data source needs provenance, a schema contract, and an offline test
+        fixture before it is wired into the pipeline.
+
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Name and URL of the data source.
+      placeholder: "nflreadpy load_ftn_charting — https://nflreadpy.nflverse.com/api/load_functions/"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Source kind
+      options:
+        - nflverse / nflreadpy
+        - Sleeper API
+        - Community image or ranking table
+        - Manually curated YAML
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: fields
+    attributes:
+      label: Fields needed
+      description: Which columns or keys does the pipeline actually consume?
+    validations:
+      required: true
+
+  - type: textarea
+    id: coverage
+    attributes:
+      label: Coverage and limitations
+      description: Seasons covered, known gaps, update cadence, and license or terms.
+      placeholder: "FTN charting is 2022+ only; CC-BY-SA. Routes-run coverage for the current season may be thin at draft time."
+    validations:
+      required: true
+
+  - type: textarea
+    id: fallback
+    attributes:
+      label: Fallback behavior
+      description: What happens when the source is unavailable, stale, or incomplete? Which confidence flag is set on derived values?
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: Schema contract and fixture
+      description: Required columns and dtypes to validate, plus the offline fixture that will be committed for tests.
+    validations:
+      required: true

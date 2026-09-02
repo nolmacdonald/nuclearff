@@ -31,6 +31,10 @@
   color: "0366d6"
   description: "Dependency updates"
 
+- name: "type::research"
+  color: "c5def5"
+  description: "Investigation or methodology question, resolved with a decision note"
+
 # Status labels
 - name: "status::needs-triage"
   color: "e4e669"
@@ -89,3 +93,32 @@
 - name: "area::packaging"
   color: "fef2c0"
   description: "Build, packaging and release"
+
+- name: "area::data"
+  color: "c2e0c6"
+  description: "Data sources, loaders and caching"
+
+- name: "area::model"
+  color: "d4c5f9"
+  description: "Metrics, projection, valuation and simulation"
+
+- name: "area::community-data"
+  color: "f9d0c4"
+  description: "Community images, extraction and consensus comparison"
+
+- name: "area::reporting"
+  color: "bfd4f2"
+  description: "Tables, figures, CLI output and artifacts"
+
+# Milestone labels (see PART C / PART E of the technical plan)
+- name: "milestone::mvp"
+  color: "0e8a16"
+  description: "MVP milestone (issues 1-11)"
+
+- name: "milestone::model-validation"
+  color: "fbca04"
+  description: "Model validation milestone (issues 12-15)"
+
+- name: "milestone::draft-ready"
+  color: "5c6bc0"
+  description: "Draft-ready milestone (issues 20-23)"
