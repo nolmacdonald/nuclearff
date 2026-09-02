@@ -5,7 +5,9 @@ development workflow for nuclearff.
 
 ## Development Setup
 
-nuclearff uses [uv](https://docs.astral.sh/uv/) for dependency management.
+**uv is the only supported Python environment and dependency workflow.** Do not
+use `python -m venv`, `virtualenv`, `pip install`, or a hand-maintained
+`requirements.txt` — the lock file is authoritative and CI installs from it.
 
 ```bash
 # Clone the repository
@@ -13,57 +15,138 @@ git clone https://github.com/nolmacdonald/nuclearff.git
 cd nuclearff
 
 # Create the virtual environment and install dev dependencies
-uv sync --extra dev
+uv sync --frozen --extra dev
 
-# Optionally install docs dependencies as well
-uv sync --extra dev --extra docs
+# Or install everything, matching CI
+uv sync --frozen --extra dev --extra docs
 ```
+
+`--frozen` installs exactly what `uv.lock` specifies and fails if
+`pyproject.toml` has drifted from it. To change dependencies:
+
+```bash
+uv add <package>              # runtime dependency
+uv add --optional dev <pkg>   # dev extra
+uv lock                       # refresh the lock file
+uv sync --extra dev           # apply it locally
+```
+
+Commit both `pyproject.toml` and `uv.lock` in the same change.
 
 ## Code Style
 
-All code must pass [Ruff](https://docs.astral.sh/ruff/) formatting and linting:
+All code must pass [Ruff](https://docs.astral.sh/ruff/) formatting and linting,
+and [ty](https://github.com/astral-sh/ty) type checking:
 
 ```bash
-# Format code
-uv run ruff format .
-
-# Lint code
-uv run ruff check .
-
-# Type check
-uv run ty check src/
+uv run ruff format .      # format
+uv run ruff check .       # lint
+uv run ty check src/      # type check
 ```
 
-## Testing
+Docstrings are NumPy-style, matching the Sphinx `Google-style` configuration in
+`docs/source/conf.py`.
 
-Run the test suite with coverage:
+## Testing
 
 ```bash
 uv run pytest
 ```
 
+**Tests must never touch the network.** HTTP calls are mocked with
+[`responses`](https://github.com/getsentry/responses), and nflverse inputs come
+from committed fixtures under `tests/fixtures/`. A test that requires a live API
+is a test that will fail in CI and on an airplane.
+
 ## Documentation
 
-Build the documentation locally:
-
 ```bash
+uv sync --frozen --extra docs
 uv run sphinx-build -b html docs/source docs/_build/html
 ```
 
-Open `docs/_build/html/index.html` in a browser.
+Open `docs/_build/html/index.html` in a browser. CI builds the docs with `-W`,
+so a Sphinx warning fails the build.
 
-## Pull Request Process
+## Issues, Branches and Pull Requests
 
-1. Create a feature branch.
-2. Write tests for your changes.
-3. Ensure all checks pass (`ruff`, `ty`, `pytest`).
-4. Open a pull request using the provided template.
-5. A maintainer will review and merge your PR.
+Issues are the unit of planned work. Each issue defines **Problem**, **Scope**,
+**Acceptance Criteria**, **Tests**, **Artifacts/Docs**, and **Non-goals**.
+
+1. One focused branch per issue where practical, named `issue-<n>-<slug>`
+   (for example `issue-17-png-postprocessing`).
+2. Open a draft pull request early so CI runs against the work in progress.
+3. Write tests for your changes.
+4. Ensure all checks pass locally (`ruff format --check`, `ruff check`,
+   `ty check src/`, `pytest`).
+5. Include `Closes #<issue>` in the pull request body.
+6. CI must be green before merge; merges to `main` are squashed to keep the
+   history readable.
+
+Research-heavy issues should first produce a checked-in decision note under
+`docs/source/decisions/`, so modeling choices do not live only in issue
+comments or notebooks. Notes are numbered (`0001-`, `0002-`, ...) and listed in
+`docs/source/decisions.rst`.
+
+### Labels
+
+Labels are defined in `.github/labels.yml`:
+
+- `type::*` — bug, feature, enhancement, documentation, refactor, ci, test,
+  dependencies, research
+- `area::*` — api, docs, ci, packaging, data, model, community-data, reporting
+- `status::*` — needs-triage, in-progress, blocked, ready-for-review,
+  needs-changes, wont-fix
+- `priority::*` and `milestone::*`
+
+## Repository Configuration
+
+These settings are configured in the GitHub UI and are documented here so the
+required state is reviewable. Settings live under **Settings → Branches**,
+**Settings → General**, and **Settings → Code security**.
+
+**Branch protection on `main`:**
+
+- Require a pull request before merging, with at least one approving review.
+- Require status checks to pass before merging, and require branches to be up to
+  date. Required checks:
+  - `Lint and type check`
+  - `Test (Python 3.11)`
+  - `Test (Python 3.12)`
+  - `Test (Python 3.13)`
+  - `Build distributions`
+  - `Build documentation`
+- Require conversation resolution before merging.
+- Do not allow force pushes or deletions.
+
+**General:**
+
+- Allow squash merging only; disable merge commits and rebase merging.
+- Automatically delete head branches after merge.
+- Enable Issues and Projects.
+
+**Code security:**
+
+- Enable Dependabot alerts and security updates. Version updates are configured
+  in `.github/dependabot.yml`; merge dependency updates only after CI (and, once
+  they exist, backtests) pass.
+
+**Projects board** tracks `Backlog → Ready → In Progress → Review → Done`, with
+milestone fields for `MVP`, `Model Validation`, and `Draft Ready`.
+
+## Releases
+
+Tagged checkpoints follow the plan's milestones: `v0.1.0` scaffold and data MVP,
+`v0.2.0` validated WR model, `v1.0.0` draft-ready. Pushing a `v*` tag runs
+`.github/workflows/release.yml`, which re-runs the quality gates, builds with
+`uv build`, and opens a draft GitHub release. Human-facing ranking and report
+artifacts are attached only when they are intentionally published.
 
 ## Reporting Issues
 
 Please use the issue templates in `.github/ISSUE_TEMPLATE/` when filing bugs,
-feature requests, or documentation improvements.
+feature requests, documentation improvements, research tasks, or data-source
+proposals.
 
 ## Code of Conduct
 

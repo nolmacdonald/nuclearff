@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/source/_static/logo/nuclearff-light-color.svg" width="160">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/source/_static/logo/atom-color-dark-mode.svg">
+    <source media="(prefers-color-scheme: light)" srcset="docs/source/_static/logo/atom-color-light-mode.svg">
+    <img src="docs/source/_static/logo/atom-color-dark-mode.svg" width="160">
+  </picture>
 </p>
 
 <p align="center">
@@ -60,12 +64,13 @@ matchup data through the [Sleeper API](https://docs.sleeper.com).
 | Feature              | Tooling                                                                                             |
 |----------------------|-----------------------------------------------------------------------------------------------------|
 | Build backend        | [uv_build](https://docs.astral.sh/uv/concepts/build-backend/)                                       |
+| Configuration        | [pydantic](https://docs.pydantic.dev/) + YAML                                                       |
 | Formatting & linting | [ruff](https://docs.astral.sh/ruff/)                                                                |
 | Type checking        | [ty](https://github.com/astral-sh/ty)                                                               |
 | Virtual environment  | [uv](https://docs.astral.sh/uv/)                                                                    |
 | Testing & coverage   | [pytest](https://docs.pytest.org/) + pytest-cov                                                     |
 | Data frames          | [polars](https://docs.pola.rs/) + [pandas](https://pandas.pydata.org/)                              |
-| HTTP client          | [httpx](https://www.python-httpx.org/)                                                              |
+| HTTP client          | [requests](https://requests.readthedocs.io/) (mocked with `responses` in tests)                     |
 | Documentation        | [Sphinx](https://www.sphinx-doc.org/) + [PyData theme](https://pydata-sphinx-theme.readthedocs.io/) |
 | CI/CD                | [GitHub Actions](https://github.com/features/actions)                                               |
 
@@ -74,9 +79,20 @@ matchup data through the [Sleeper API](https://docs.sleeper.com).
 ```bash
 git clone https://github.com/nolmacdonald/nuclearff.git
 cd nuclearff
-uv sync
+uv sync --frozen --extra dev
 uv run pytest
 ```
+
+Capture your league's configuration straight from Sleeper:
+
+```bash
+uv run nuclearff config init
+uv run nuclearff sleeper fetch-league --league-id <your-league-id>
+```
+
+The snapshot is written to an immutable, timestamped directory under
+`data/raw/sleeper/`, and any league setting that looks wrong or is load-bearing
+for valuation is reported for you to confirm.
 
 ```python
 import logging
@@ -91,11 +107,21 @@ player_stats = nfl.load_player_stats([2023, 2024])
 print(player_stats.head())
 ```
 
+## Command Line
+
+```text
+nuclearff config init          Write a default configuration file
+nuclearff config show          Print the resolved configuration
+nuclearff config paths         Print (and optionally create) managed directories
+nuclearff sleeper state        Print the current NFL season and week
+nuclearff sleeper fetch-league Capture an immutable league snapshot
+```
+
 ## Development
 
 ```bash
 # Install dev dependencies
-uv sync --extra dev --extra docs
+uv sync --frozen --extra dev --extra docs
 
 # Format and lint
 uv run ruff format .
@@ -111,7 +137,7 @@ uv run pytest
 ## Documentation
 
 ```bash
-uv sync --extra docs
+uv sync --frozen --extra docs
 uv run sphinx-build -b html docs/source docs/_build/html
 ```
 
