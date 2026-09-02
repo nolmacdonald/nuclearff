@@ -1,0 +1,90 @@
+[
+  {
+    "co_owners": null,
+    "keepers": [],
+    "league_id": "1367225133634191360",
+    "metadata": {
+      "allow_pn_inactive_starters": "on",
+      "allow_pn_player_injury_status": "off",
+      "allow_pn_scoring": "on",
+      "p_nick_11632": "Rest your brain, sweet prince",
+      "p_nick_1466": "A God Among Mortal Men",
+      "p_nick_2750": "Temp ",
+      "p_nick_4018": "Nvm, Respect",
+      "p_nick_4040": "Juju Pupu",
+      "p_nick_4111": "Prince Henry II",
+      "p_nick_5045": "Dogwater QB",
+      "p_nick_5284": "LFG",
+      "p_nick_6768": "A Good Tua Tugjob",
+      "p_nick_6801": "",
+      "p_nick_7042": "Not the Bills Punter",
+      "p_nick_7090": "Double Fields Pass TD Pls",
+      "p_nick_7551": "Temp",
+      "p_nick_7606": "Insert Problematic Young WR",
+      "p_nick_7607": "Better than James Robinson ",
+      "p_nick_8136": "Cheeseburger Lemny Old Now",
+      "p_nick_8137": "Kamel\u2019s XMas Gift",
+      "p_nick_8168": "Point-Per-Route-Run KING",
+      "p_nick_KC": "Idk Bro im just guessing week to week",
+      "restrict_pn_scoring_starters_only": "on"
+    },
+    "owner_id": "723569662083825664",
+    "player_map": null,
+    "players": [],
+    "reserve": [],
+    "roster_id": 1,
+    "settings": {
+      "fpts": 0,
+      "losses": 0,
+      "ties": 0,
+      "total_moves": 0,
+      "waiver_budget_used": 0,
+      "waiver_position": 5,
+      "wins": 0
+    },
+    "starters": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "taxi": []
+  },
+  {
+    "co_owners": null,
+    "keepers": [],
+    "league_id": "1367225133634191360",
+    "metadata": null,
+    "owner_id": "727821306074075136",
+    "player_map": null,
+    "players": [],
+    "reserve": [],
+    "roster_id": 2,
+    "settings": {
+      "fpts": 0,
+      "losses": 0,
+      "ties": 0,
+      "total_moves": 0,
+      "waiver_budget_used": 0,
+      "waiver_position": 2,
+      "wins": 0
+    },
+    "starters": [
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0",
+      "0"
+    ],
+    "taxi": []
+  }
+]

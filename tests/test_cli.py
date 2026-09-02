@@ -1,0 +1,196 @@
+"""Smoke tests for the command-line interface.
+
+Each command is run against a temporary directory so nothing touches the real
+data tree, and every network call is mocked.
+"""
+
+from __future__ import annotations
+
+import pytest
+import responses
+
+from nuclearff.cli import EXIT_ERROR, EXIT_OK, EXIT_USAGE, build_parser, main
+from nuclearff.config import load_config
+from tests.conftest import LEAGUE_ID, TEST_BASE_URL
+from tests.test_sleeper_snapshot import DRAFT_ID
+
+
+@pytest.fixture(autouse=True)
+def _local_sleeper(monkeypatch):
+    """Point the CLI's Sleeper client at a fake host with no throttling."""
+    import nuclearff.cli as cli
+    from nuclearff.sleeper.client import SleeperClient
+
+    def _client(**kwargs):
+        kwargs.setdefault("base_url", TEST_BASE_URL)
+        kwargs.setdefault("min_interval", 0.0)
+        kwargs.setdefault("backoff_factor", 0.0)
+        return SleeperClient(**kwargs)
+
+    monkeypatch.setattr(cli, "SleeperClient", _client)
+
+
+def test_version(capsys):
+    """--version prints and exits zero."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["--version"])
+
+    assert excinfo.value.code == EXIT_OK
+    assert "nuclearff" in capsys.readouterr().out
+
+
+def test_no_group_is_a_usage_error():
+    """Invoking with no command group is a usage error, not a crash."""
+    with pytest.raises(SystemExit) as excinfo:
+        main([])
+
+    assert excinfo.value.code == EXIT_USAGE
+
+
+def test_group_without_command_is_a_usage_error():
+    """A group with no subcommand is likewise a usage error."""
+    with pytest.raises(SystemExit) as excinfo:
+        main(["config"])
+
+    assert excinfo.value.code == EXIT_USAGE
+
+
+def test_parser_exposes_both_groups():
+    """The CLI surface covers configuration and Sleeper access."""
+    parser = build_parser()
+    groups = parser.parse_args(["config", "show"])
+
+    assert groups.group == "config"
+    assert parser.parse_args(["sleeper", "state"]).group == "sleeper"
+
+
+def test_config_init_writes_a_loadable_file(tmp_path, capsys):
+    """config init produces a file that round-trips through the loader."""
+    out = tmp_path / "nuclearff.yaml"
+
+    assert main(["config", "init", "-o", str(out)]) == EXIT_OK
+    assert out.is_file()
+    assert load_config(out).model.weights.volume == 0.50
+    assert str(out) in capsys.readouterr().out
+
+
+def test_config_init_refuses_to_clobber(tmp_path, capsys):
+    """Overwriting an existing config requires --force."""
+    out = tmp_path / "nuclearff.yaml"
+    main(["config", "init", "-o", str(out)])
+
+    assert main(["config", "init", "-o", str(out)]) == EXIT_ERROR
+    assert "--force" in capsys.readouterr().err
+    assert main(["config", "init", "-o", str(out), "--force"]) == EXIT_OK
+
+
+def test_config_show_without_a_file_uses_defaults(tmp_path, capsys):
+    """A fresh clone with no config file still gets a usable CLI."""
+    assert main(["--root", str(tmp_path), "config", "show"]) == EXIT_OK
+    assert "wr_default" in capsys.readouterr().out
+
+
+def test_config_show_reports_a_bad_file(tmp_path, capsys):
+    """A malformed config produces an actionable error and a nonzero exit."""
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("model:\n  weights:\n    volume: 2.0\n", encoding="utf-8")
+
+    assert main(["-c", str(bad), "config", "show"]) == EXIT_ERROR
+    assert "error:" in capsys.readouterr().err
+
+
+def test_config_paths_ensure_creates_the_tree(tmp_path, capsys):
+    """config paths --ensure creates every managed directory under root."""
+    assert main(["--root", str(tmp_path), "config", "paths", "--ensure"]) == EXIT_OK
+
+    out = capsys.readouterr().out
+    assert "missing" not in out
+    assert (tmp_path / "data" / "cache").is_dir()
+    assert (tmp_path / "configs" / "leagues").is_dir()
+
+
+@responses.activate
+def test_sleeper_state(tmp_path, capsys, state_payload):
+    """sleeper state prints the current season and week."""
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+
+    assert main(["--root", str(tmp_path), "sleeper", "state"]) == EXIT_OK
+    assert f"season={state_payload['season']}" in capsys.readouterr().out
+
+
+@responses.activate
+def test_sleeper_fetch_league(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    rosters_payload,
+    state_payload,
+):
+    """fetch-league writes a snapshot and prints the settings needing review."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=users_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=rosters_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+
+    exit_code = main(
+        ["--root", str(tmp_path), "sleeper", "fetch-league", "--league-id", LEAGUE_ID]
+    )
+
+    assert exit_code == EXIT_OK
+
+    out = capsys.readouterr().out
+    assert "NUCLEARFF REDRAFT" in out
+    assert "draft_rounds_mismatch" in out
+    assert "keepers_in_redraft" in out
+
+    snapshots = list((tmp_path / "data" / "raw" / "sleeper" / LEAGUE_ID).iterdir())
+    assert len(snapshots) == 1
+    assert (snapshots[0] / "snapshot.json").is_file()
+
+
+@responses.activate
+def test_sleeper_fetch_league_reports_api_failure(tmp_path, capsys):
+    """An unreachable league is reported as an error, not a traceback."""
+    for _ in range(8):
+        responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", status=500)
+
+    exit_code = main(
+        ["--root", str(tmp_path), "sleeper", "fetch-league", "--league-id", LEAGUE_ID]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "error:" in capsys.readouterr().err
+
+
+@responses.activate
+def test_sleeper_fetch_players(tmp_path, capsys):
+    """fetch-players stores the player map in DuckDB under the cache dir."""
+    import duckdb
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl",
+        json={"4046": {"full_name": "Patrick Mahomes", "position": "QB"}},
+    )
+
+    exit_code = main(["--root", str(tmp_path), "sleeper", "fetch-players"])
+
+    assert exit_code == EXIT_OK
+
+    out = capsys.readouterr().out
+    assert "Players:  1" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    assert db_path.is_file()
+    with duckdb.connect(str(db_path)) as conn:
+        (full_name,) = conn.execute(
+            "SELECT full_name FROM sleeper_players WHERE player_id = '4046'"
+        ).fetchone()
+    assert full_name == "Patrick Mahomes"
