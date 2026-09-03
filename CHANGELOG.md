@@ -142,6 +142,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PPG on Spearman/MAE/RMSE across every fold — a real, sensible signal
   confirming the harness itself works, not yet a claim about the full
   projection model's weights (that comparison is separate, later work).
+- `nuclearff.provenance` (`ff_revised.md` Issue 8): `RunManifest` plus
+  `build_run_manifest`/`write_run_manifest`, capturing git commit/dirty
+  state, package/Python versions, a deterministic config hash, and source
+  hashes for reproducing a future pipeline run. Verified end-to-end: real
+  git SHA/dirty-state capture, deterministic config hashing, JSON
+  round-trip. Not yet called by anything — infrastructure for the ranking
+  pipeline (`ff_revised.md` Issue 20) once it exists.
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
   `StorageError`, and friends).
 - Logging configuration utilities.
