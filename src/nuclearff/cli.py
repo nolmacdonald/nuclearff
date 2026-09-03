@@ -18,6 +18,7 @@ import polars as pl
 
 from nuclearff._version import __version__
 from nuclearff.config import default_config, dump_config, load_config
+from nuclearff.config.league import dump_league_config, league_config_from_sleeper
 from nuclearff.config.loader import to_yaml
 from nuclearff.config.models import NuclearffConfig
 from nuclearff.exceptions import NuclearffError
@@ -179,6 +180,19 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     )
     print(f"Teams:    {snapshot.league.get('total_rosters')}")
     print(f"Snapshot: {target}")
+
+    try:
+        league_cfg = league_config_from_sleeper(snapshot.league)
+        league_cfg_path = dump_league_config(
+            league_cfg, config.paths.leagues_dir / f"{league_cfg.league_id}.yaml"
+        )
+    except NuclearffError as exc:
+        # The raw snapshot above is the durable, valuable artifact; a league
+        # this tool cannot yet type shouldn't make the whole command fail.
+        logger.warning("Could not derive a LeagueConfig from this snapshot: %s", exc)
+        print(f"League config: skipped ({exc})")
+    else:
+        print(f"League config: {league_cfg_path}")
 
     if snapshot.metadata.missing:
         print(f"\nEndpoints unavailable ({len(snapshot.metadata.missing)}):")
