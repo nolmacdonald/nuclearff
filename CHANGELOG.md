@@ -66,6 +66,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-player routes-run source despite the original technical plan's
   assumption, so there is currently no real routes-run data available via
   nflreadpy for any season.
+- `nuclearff.scoring.ScoringEngine` (`ff_revised.md` Issue 9), the
+  league-agnostic scorer: bridges Sleeper's scoring-key vocabulary to
+  nflverse's stat-column vocabulary via declarative linear/composite/
+  threshold/position-bonus mapping tables, so the same engine scores any
+  league's rules. `unscored_keys()` surfaces any nonzero scoring key it has
+  no data source for (kicker/defense/IDP, or per-catch yardage-bucket keys)
+  rather than silently under-counting. Verified against this project's real
+  league and real 2024 data: reproduces `nflreadpy`'s own
+  `fantasy_points_ppr` column exactly for every top player except one whose
+  value correctly differs because this league's real 6-point passing-TD
+  rule (from a rare WR trick-play TD) diverges from nflreadpy's generic
+  4-point default — confirming the engine applies the league's actual
+  rules rather than a generic assumption.
+- `nuclearff.metrics.volume` (`ff_revised.md` Issue 10): `target_share`,
+  `air_yards_share`, `wopr`, `racr`, `adot` — recomputed transparently from
+  raw weekly data rather than trusted blindly from `nflreadpy`'s own
+  pre-computed columns, with a cross-check against them. Live 2024
+  validation found `air_yards_share` disagrees with nflreadpy's own column
+  on ~7% of rows (an unresolved methodology difference, documented rather
+  than silently accepted).
+- `nuclearff.metrics.efficiency` (Issue 10): `join_routes` (bridges
+  nflverse's `pfr_player_id`-keyed routes data onto `gsis_id`-keyed
+  receiving data via `load_players`, rejecting ambiguous ID pairs rather
+  than guessing), `yprr`, `tprr` — both sample-gated and explicitly labeled
+  as running on the snap-count routes proxy, not real charted routes-run
+  data.
+- `nuclearff.metrics.touchdowns.expected_tds` (`ff_revised.md` Issue 11),
+  regressing raw receiving TDs toward an opportunity-driven expectation via
+  ffverse's own maintained `load_ff_opportunity` model, rather than
+  reimplementing red-zone/air-yards TD modeling from scratch.
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
   `StorageError`, and friends).
 - Logging configuration utilities.
