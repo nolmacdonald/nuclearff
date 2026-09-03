@@ -96,6 +96,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regressing raw receiving TDs toward an opportunity-driven expectation via
   ffverse's own maintained `load_ff_opportunity` model, rather than
   reimplementing red-zone/air-yards TD modeling from scratch.
+- `nuclearff.projection.blend` (`ff_revised.md` Issue 13):
+  `recency_weighted_rate`, `apply_age_curve`, `apply_context_deltas`,
+  `project_games_played`, and `blend_projection`, composing a multi-season,
+  age-adjusted, sample-gated forward projection from `ModelConfig`'s
+  `RecencyWeights`/`AgeCurveConfig`/`SampleThresholds`. A player with fewer
+  seasons than the recency window has their weights renormalized rather
+  than diluted by assumed-zero seasons.
+- `nuclearff.valuation.vorp` (`ff_revised.md` Issue 14): `replacement_points`,
+  `vorp`, `vona` — turns a projected-points table into draft value using
+  `LeagueConfig`'s replacement-rank math. `nuclearff.valuation.tiers`:
+  `assign_tiers`, k-means tiering (auto-`k` via silhouette score) with
+  cluster labels remapped so tier 1 is always the highest-value group, not
+  sklearn's arbitrary cluster order.
+- `nuclearff.simulation.montecarlo` (`ff_revised.md` Issue 15):
+  `simulate_player_season`, `summarize_distribution`, `simulate_from_config`
+  — seeded, reproducible Monte-Carlo season simulation via
+  `scipy.stats.skewnorm`, correctly solving for the loc/scale that
+  reproduce a target mean/sd even with nonzero skew. Uses
+  `numpy.random.default_rng`, never legacy global random state, so a
+  recorded seed can actually reproduce a published ranking.
+- `configs/models/wr_default.yaml`, the default WR projection model
+  configuration (recency weights, age curve, sample thresholds, simulation
+  parameters) referenced by the modules above.
+- **Milestone: the full projection → valuation → simulation pipeline runs
+  end-to-end**, validated against real 2023-2025 data for this project's
+  real league: `blend_projection` → `vorp` → `assign_tiers` →
+  `simulate_from_config` produces a top-12 WR list (Ja'Marr Chase, Amon-Ra
+  St. Brown, Puka Nacua, Jaxon Smith-Njigba, Justin Jefferson, Nico
+  Collins, ...) that closely matches real-world 2026 consensus rankings,
+  with sensible Monte-Carlo floor/median/ceiling outputs. Exercised via a
+  direct Python script rather than a `nuclearff` command — no CLI/report
+  layer wraps this pipeline yet.
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
   `StorageError`, and friends).
 - Logging configuration utilities.
