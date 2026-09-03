@@ -155,6 +155,16 @@ def test_sleeper_fetch_league(
     assert len(snapshots) == 1
     assert (snapshots[0] / "snapshot.json").is_file()
 
+    league_cfg_path = tmp_path / "configs" / "leagues" / f"{LEAGUE_ID}.yaml"
+    assert league_cfg_path.is_file()
+    assert f"League config: {league_cfg_path}" in out
+
+    from nuclearff.config.league import load_league_config
+
+    league_cfg = load_league_config(league_cfg_path)
+    assert league_cfg.league_id == LEAGUE_ID
+    assert league_cfg.scoring.rec == 1.0
+
 
 @responses.activate
 def test_sleeper_fetch_league_reports_api_failure(tmp_path, capsys):
