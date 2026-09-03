@@ -194,3 +194,48 @@ def test_sleeper_fetch_players(tmp_path, capsys):
             "SELECT full_name FROM sleeper_players WHERE player_id = '4046'"
         ).fetchone()
     assert full_name == "Patrick Mahomes"
+
+
+def test_ids_resolve_gsis_reports_a_missing_players_table(tmp_path, capsys):
+    """resolve-gsis tells the user to run fetch-players first, not a traceback."""
+    exit_code = main(["--root", str(tmp_path), "ids", "resolve-gsis"])
+
+    assert exit_code == EXIT_ERROR
+    assert "nuclearff sleeper fetch-players" in capsys.readouterr().err
+
+
+def test_ids_resolve_gsis_fills_gaps_and_reports_counts(tmp_path, capsys, monkeypatch):
+    """resolve-gsis fills what it can from a mocked crosswalk and reports the rest."""
+    import polars as pl
+
+    import nuclearff.cli as cli
+    from nuclearff.sleeper.players import write_players_table
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    write_players_table(
+        {
+            "4046": {"full_name": "Has Sleeper GSIS", "gsis_id": "00-0033873"},
+            "200": {"full_name": "Needs Crosswalk", "gsis_id": None},
+            "300": {"full_name": "Unmatched", "gsis_id": None},
+        },
+        db_path,
+    )
+
+    ff_ids = pl.DataFrame(
+        {
+            "sleeper_id": [200],
+            "gsis_id": ["00-FROM-CROSSWALK"],
+        },
+        schema={"sleeper_id": pl.Int64, "gsis_id": pl.Utf8},
+    )
+    monkeypatch.setattr(cli, "configure_nflverse_cache", lambda cache_dir: None)
+    monkeypatch.setattr(cli, "load_ff_playerids", lambda: ff_ids)
+
+    exit_code = main(["--root", str(tmp_path), "ids", "resolve-gsis"])
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Players:                   3" in out
+    assert "gsis_id from Sleeper:      1" in out
+    assert "gsis_id from ff_playerids: 1" in out
+    assert "Still unresolved:          1" in out

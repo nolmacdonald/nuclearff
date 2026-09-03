@@ -1,6 +1,6 @@
 """Command-line interface for nuclearff.
 
-Commands are grouped by concern (``config``, ``sleeper``). Every command reads
+Commands are grouped by concern (``config``, ``sleeper``, ``ids``). Every command reads
 its settings from a configuration file so that a run can be reproduced from a
 git SHA plus a config, and every command returns an exit code rather than
 calling :func:`sys.exit` directly, which keeps them testable.
@@ -14,12 +14,22 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+import polars as pl
+
 from nuclearff._version import __version__
 from nuclearff.config import default_config, dump_config, load_config
 from nuclearff.config.loader import to_yaml
 from nuclearff.config.models import NuclearffConfig
 from nuclearff.exceptions import NuclearffError
+from nuclearff.ids import (
+    ambiguous_sleeper_ids,
+    read_sleeper_players,
+    resolve_missing_gsis_ids,
+    write_player_id_map,
+)
 from nuclearff.logging_config import configure_logging
+from nuclearff.nflverse import configure_cache as configure_nflverse_cache
+from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
     fetch_league_snapshot,
@@ -208,6 +218,52 @@ def _cmd_sleeper_fetch_players(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_ids_resolve_gsis(args: argparse.Namespace) -> int:
+    """Fill missing Sleeper ``gsis_id`` values via the nflverse crosswalk.
+
+    Reads the ``sleeper_players`` DuckDB table (written by
+    ``nuclearff sleeper fetch-players``), fetches the ff_playerids crosswalk
+    from nflverse, and writes a ``player_id_map`` table with every player's
+    best-known ``gsis_id`` and where it came from.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+    config.paths.ensure()
+
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+    players = read_sleeper_players(db_path)
+
+    configure_nflverse_cache(config.paths.cache_dir)
+    ff_ids = load_ff_playerids()
+
+    ambiguous = ambiguous_sleeper_ids(ff_ids)
+    resolved = resolve_missing_gsis_ids(players, ff_ids)
+    write_player_id_map(resolved, db_path)
+
+    from_sleeper = resolved.filter(pl.col("gsis_id_source") == "sleeper").height
+    from_crosswalk = resolved.filter(pl.col("gsis_id_source") == "ff_playerids").height
+    unresolved = resolved.height - from_sleeper - from_crosswalk
+
+    print(f"Players:                   {resolved.height}")
+    print(f"gsis_id from Sleeper:      {from_sleeper}")
+    print(f"gsis_id from ff_playerids: {from_crosswalk}")
+    print(f"Still unresolved:          {unresolved}")
+
+    if ambiguous.height:
+        ambiguous_ids = ambiguous.select("sleeper_id").unique().height
+        print(
+            f"\nSkipped {ambiguous_ids} ambiguous crosswalk sleeper_id value(s) "
+            "(maps to more than one player; not used to fill gaps)."
+        )
+
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -286,6 +342,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-fetch even if the on-disk player cache is still fresh",
     )
     fetch_players.set_defaults(func=_cmd_sleeper_fetch_players)
+
+    ids_parser = groups.add_parser(
+        "ids", help="Cross-source player identity resolution"
+    )
+    ids_commands = ids_parser.add_subparsers(dest="command", metavar="<command>")
+    ids_commands.required = True
+
+    resolve_gsis = ids_commands.add_parser(
+        "resolve-gsis",
+        help="Fill missing Sleeper gsis_id values via the nflverse crosswalk",
+    )
+    resolve_gsis.set_defaults(func=_cmd_ids_resolve_gsis)
 
     return parser
 

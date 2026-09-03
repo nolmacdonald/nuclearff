@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and stores a normalized subset of columns (including `gsis_id` and other
   cross-platform IDs) in a local DuckDB table for identity mapping against
   nflverse and other sources.
+- `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
+  players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
+  skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,
+  and writes a `player_id_map` table recording each `gsis_id`'s source. Real
+  coverage against this project's real league: 88-95% of currently-rostered
+  QB/RB/WR/TE, with the gap almost entirely players missing from this year's
+  crosswalk (typically rookies).
+- `nuclearff.duckdb_io`, a shared helper for reading/writing DuckDB tables via
+  plain parameterized SQL rather than a Polars/pandas DataFrame handoff
+  (avoids pulling in `pyarrow` as a transitive dependency for a handful of
+  typed columns). Used by both `sleeper fetch-players` and `ids resolve-gsis`.
 - `nuclearff.nflverse`: thin, cache-configured wrappers around `nflreadpy`
   (`ff_revised.md` Issue 6). `configure_cache`/`load_ff_playerids`
   (`nflverse.loader`) set up nflreadpy's filesystem cache and load the
@@ -42,8 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-player routes-run source despite the original technical plan's
   assumption, so there is currently no real routes-run data available via
   nflreadpy for any season.
-- Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`
-  and friends).
+- Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
+  `StorageError`, and friends).
 - Logging configuration utilities.
 - Sphinx documentation with PyData theme, plus decision notes under
   `docs/source/decisions/`.
