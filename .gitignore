@@ -212,3 +212,10 @@ __marimo__/
 
 # nuclearff: generated and third-party data (raw snapshots, caches, artifacts)
 data/
+
+# nuclearff: local run configuration and per-league derived settings, written
+# by `config init` / `sleeper fetch-league` — personal to the machine that ran
+# them, not versioned defaults. configs/models/ (e.g. wr_default.yaml) is a
+# checked-in default and is intentionally not matched here.
+/configs/nuclearff.yaml
+configs/leagues/

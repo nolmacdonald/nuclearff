@@ -33,6 +33,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   coverage against this project's real league: 88-95% of currently-rostered
   QB/RB/WR/TE, with the gap almost entirely players missing from this year's
   crosswalk (typically rookies).
+- `LeagueConfig`/`ScoringSettings`/`RosterSlots` (`nuclearff.config.league`,
+  `ff_revised.md` Issue 5), typed league scoring and roster settings derived
+  from a raw Sleeper league object. `starter_demand`/`replacement_rank`
+  compute the VOLS/VORP value-based-drafting baseline for any position
+  (QB/RB/WR/TE) from the league's actual roster slots and a configurable
+  FLEX/superflex allocation rate, rather than being hardcoded to one
+  position. `nuclearff sleeper fetch-league` now also writes the derived
+  league config to `configs/leagues/<league_id>.yaml`. Verified against this
+  project's real league: full PPR, no TE premium,
+  `replacement_rank("WR", "vols") == 35` (the plan's expected WR33-36 band).
+  The per-position FLEX-share and bench-fraction default rates beyond WR are
+  explicitly flagged in the code as uncalibrated heuristics, to be revisited
+  once real draft/roster data exists.
 - `nuclearff.duckdb_io`, a shared helper for reading/writing DuckDB tables via
   plain parameterized SQL rather than a Polars/pandas DataFrame handoff
   (avoids pulling in `pyarrow` as a transitive dependency for a handful of
