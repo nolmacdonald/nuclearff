@@ -128,6 +128,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with sensible Monte-Carlo floor/median/ceiling outputs. Exercised via a
   direct Python script rather than a `nuclearff` command — no CLI/report
   layer wraps this pipeline yet.
+- `nuclearff.backtest.metrics` (`ff_revised.md` Issue 12):
+  `spearman_correlation`, `mae`, `rmse`, `top_k_precision_recall`,
+  `tier_accuracy`, `brier_score` — pure evaluation functions,
+  degenerate-input-safe (constant/short input returns `nan` without scipy
+  warnings; out-of-range probabilities raise). `nuclearff.backtest.walkforward`:
+  `season_folds` (expanding-window, leakage-safe by construction),
+  `baseline_prior_year`, `baseline_recency_weighted` (delegates to
+  `projection.blend`'s own recency weighting), and
+  `run_walk_forward_backtest`, the harness the plan's recommendation #7
+  calls for before locking `ModelConfig`'s projection weights. Run against
+  real 2021-2025 WR data: the recency-weighted baseline beats prior-year
+  PPG on Spearman/MAE/RMSE across every fold — a real, sensible signal
+  confirming the harness itself works, not yet a claim about the full
+  projection model's weights (that comparison is separate, later work).
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
   `StorageError`, and friends).
 - Logging configuration utilities.
