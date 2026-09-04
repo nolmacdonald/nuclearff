@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and stores a normalized subset of columns (including `gsis_id` and other
   cross-platform IDs) in a local DuckDB table for identity mapping against
   nflverse and other sources.
+- `nuclearff.nflverse`: thin, cache-configured wrappers around `nflreadpy`
+  (`ff_revised.md` Issue 6). `configure_cache`/`load_ff_playerids`
+  (`nflverse.loader`) set up nflreadpy's filesystem cache and load the
+  `ff_playerids` ID crosswalk; `load_weekly_receiving`,
+  `load_seasonal_receiving`, `load_ngs_receiving`, `load_routes`, and
+  `load_players` (`nflverse.stats`) are thin, schema-validated wrappers
+  around nflreadpy's receiving-stats loaders, plus
+  `load_weekly_skill_stats`/`load_seasonal_skill_stats` (QB/RB/WR/TE, via
+  `SKILL_POSITIONS`) alongside the WR/RB/TE-only receiving loaders, and
+  `load_ff_opportunity` (ffverse's expected-points model). `load_routes`
+  labels every row with its real `source` (`snap-count proxy` vs.
+  `unavailable`) rather than presenting an approximation as charted data;
+  live investigation found `nflreadpy.load_ftn_charting` is not actually a
+  per-player routes-run source despite the original technical plan's
+  assumption, so there is currently no real routes-run data available via
+  nflreadpy for any season.
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`
   and friends).
 - Logging configuration utilities.
