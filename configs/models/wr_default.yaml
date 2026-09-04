@@ -1,0 +1,41 @@
+# Default wide receiver model configuration.
+#
+# These weights are a starting hypothesis from the technical plan, not a
+# validated model. Walk-forward backtests (issue 12) must show the blend
+# beats prior-year and recency-weighted baselines before they are treated
+# as final. Block weights follow the stability ordering: target share is
+# the stickiest input year over year, touchdowns the least, which is why
+# volume carries 0.50 and expected touchdowns only 0.10.
+age_curve:
+  decline_per_year: 0.025
+  min_factor: 0.85
+  peak_age: 26
+  plateau_end: 28
+baseline: vols
+flex_wr_rate: 0.5
+name: wr_default
+position: WR
+recency:
+  weights:
+  - 0.5
+  - 0.3
+  - 0.2
+seasons:
+- 2023
+- 2024
+- 2025
+simulation:
+  ceiling_percentile: 0.9
+  floor_percentile: 0.1
+  games: 17
+  n_simulations: 10000
+thresholds:
+  min_games: 8
+  min_routes: 200
+  min_targets: 50
+version: 0.1.0
+weights:
+  efficiency: 0.25
+  expected_td: 0.1
+  situation: 0.15
+  volume: 0.5
