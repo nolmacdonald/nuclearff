@@ -7,27 +7,23 @@ identifiers, notably ``gsis_id`` (the nflverse primary key), so a normalized
 subset of columns stored in DuckDB is enough to start joining against nflverse
 without waiting on a separate ID crosswalk.
 
-Rows are written with plain parameterized ``INSERT`` statements rather than
-through Polars or pandas: DuckDB's DataFrame integrations convert through
-Arrow, which would pull in ``pyarrow`` as a new dependency for what is, here,
-just a handful of typed columns.
+Rows are written through :mod:`nuclearff.duckdb_io`, which uses plain
+parameterized SQL rather than a Polars/pandas DataFrame handoff — see that
+module for why.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from typing import Any
 
-import duckdb
+from nuclearff.duckdb_io import replace_table
 
 logger = logging.getLogger(__name__)
 
 TABLE_NAME = "sleeper_players"
 """Default table name used by :func:`write_players_table`."""
-
-_VALID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 _COLUMNS = (
     "player_id",
@@ -168,29 +164,12 @@ def write_players_table(
         The number of rows written.
 
     Raises:
-        ValueError: If ``table_name`` is not a plain identifier. DuckDB has no
-            parameterized way to bind an identifier, so this guards the
-            f-strings below against unexpected input.
+        ValueError: If ``table_name`` is not a plain identifier.
     """
-    if not _VALID_IDENTIFIER.match(table_name):
-        raise ValueError(f"table_name must be a plain identifier, got {table_name!r}")
-
     rows = player_rows(players)
+    row_values = [[row[column] for column in _COLUMNS] for row in rows]
 
-    db_path = Path(db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    count = replace_table(db_path, table_name, _CREATE_TABLE_SQL, _COLUMNS, row_values)
 
-    placeholders = ", ".join(["?"] * len(_COLUMNS))
-    with duckdb.connect(str(db_path)) as conn:
-        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-        conn.execute(_CREATE_TABLE_SQL.format(table=table_name))
-        if rows:
-            conn.executemany(
-                f"INSERT INTO {table_name} VALUES ({placeholders})",
-                [[row[column] for column in _COLUMNS] for row in rows],
-            )
-
-    logger.info(
-        "Wrote %d Sleeper players to %s (table %s)", len(rows), db_path, table_name
-    )
-    return len(rows)
+    logger.info("Wrote %d Sleeper players to %s (table %s)", count, db_path, table_name)
+    return count

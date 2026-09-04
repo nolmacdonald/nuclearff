@@ -58,3 +58,24 @@ class SleeperResponseError(SleeperAPIError):
     def __init__(self, url: str, message: str) -> None:
         self.url = url
         super().__init__(f"Unexpected Sleeper response from {url}: {message}")
+
+
+class StorageError(NuclearffError):
+    """Raised when a local DuckDB table cannot be read as expected.
+
+    Args:
+        table_name: The table that could not be read.
+        db_path: The database file it was expected in.
+        message: What went wrong, or what to do about it.
+
+    Attributes:
+        table_name: The table that could not be read.
+        db_path: The database file it was expected in.
+    """
+
+    def __init__(self, table_name: str, db_path: str, message: str) -> None:
+        self.table_name = table_name
+        self.db_path = db_path
+        super().__init__(
+            f"Could not read table {table_name!r} from {db_path}: {message}"
+        )
