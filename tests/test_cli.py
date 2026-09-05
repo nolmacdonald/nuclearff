@@ -181,6 +181,66 @@ def test_sleeper_fetch_league_reports_api_failure(tmp_path, capsys):
 
 
 @responses.activate
+def test_sleeper_fetch_league_with_history_walks_and_writes_duckdb(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    rosters_payload,
+    state_payload,
+):
+    """--history walks previous_league_id and persists both tables to DuckDB."""
+    import duckdb
+
+    from tests.test_sleeper_leagues import PREVIOUS_LEAGUE_ID
+
+    previous_league_payload = dict(league_payload)
+    previous_league_payload["league_id"] = PREVIOUS_LEAGUE_ID
+    previous_league_payload["season"] = 2025
+    previous_league_payload["previous_league_id"] = None
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=users_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=rosters_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-league",
+            "--league-id",
+            LEAGUE_ID,
+            "--history",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "History:  2 season(s) walked" in out
+    assert "Configs:  2/2 parsed into LeagueConfig" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        league_ids = {
+            row[0]
+            for row in conn.execute("SELECT league_id FROM sleeper_leagues").fetchall()
+        }
+    assert league_ids == {LEAGUE_ID, PREVIOUS_LEAGUE_ID}
+
+
+@responses.activate
 def test_sleeper_fetch_players(tmp_path, capsys):
     """fetch-players stores the player map in DuckDB under the cache dir."""
     import duckdb
