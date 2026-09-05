@@ -239,6 +239,7 @@ def fetch_league_snapshot(
 
     draft: dict[str, Any] | None = None
     draft_picks: list[dict[str, Any]] = []
+    draft_traded_picks: list[dict[str, Any]] = []
     draft_id = league.get("draft_id")
     if isinstance(draft_id, str) and draft_id:
         draft = _optional(
@@ -246,6 +247,11 @@ def fetch_league_snapshot(
         )
         draft_picks = _optional(
             f"/v1/draft/{draft_id}/picks", lambda: client.get_draft_picks(draft_id), []
+        )
+        draft_traded_picks = _optional(
+            f"/v1/draft/{draft_id}/traded_picks",
+            lambda: client.get_draft_traded_picks(draft_id),
+            [],
         )
 
     state: dict[str, Any] | None = None
@@ -267,6 +273,7 @@ def fetch_league_snapshot(
         drafts=drafts,
         draft=draft,
         draft_picks=draft_picks,
+        draft_traded_picks=draft_traded_picks,
         traded_picks=traded_picks,
         state=state,
         anomalies=detect_anomalies(league, draft),
@@ -313,6 +320,7 @@ def write_snapshot(snapshot: LeagueSnapshot, raw_dir: str | Path) -> Path:
     _write_json(target / "rosters.json", snapshot.rosters)
     _write_json(target / "drafts.json", snapshot.drafts)
     _write_json(target / "draft_picks.json", snapshot.draft_picks)
+    _write_json(target / "draft_traded_picks.json", snapshot.draft_traded_picks)
     _write_json(target / "traded_picks.json", snapshot.traded_picks)
     if snapshot.draft is not None:
         _write_json(target / "draft.json", snapshot.draft)

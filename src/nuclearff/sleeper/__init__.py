@@ -7,6 +7,7 @@ from nuclearff.sleeper.leagues import (
     walk_league_chain,
     write_league_tables,
 )
+from nuclearff.sleeper.matchups import fetch_and_write_matchups, matchup_rows
 from nuclearff.sleeper.models import (
     Anomaly,
     LeagueSnapshot,
@@ -33,10 +34,12 @@ __all__ = [
     "SnapshotMetadata",
     "bracket_match_rows",
     "detect_anomalies",
+    "fetch_and_write_matchups",
     "fetch_and_write_standings",
     "fetch_league_snapshot",
     "league_config_rows",
     "league_rows",
+    "matchup_rows",
     "player_rows",
     "resolve_final_ranks",
     "roster_display_names",

@@ -56,6 +56,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   regular-season wins leader (20-8) finished 4th place, while the eventual
   champion had fewer wins (16-12), and the 4 teams that only reached the
   losers bracket correctly show `NULL`.
+- Sleeper API coverage (GitHub Issue 17): `SleeperClient.get_user`/`get_user_leagues`/
+  `get_user_drafts` (the user-discovery entry point nuclearff previously
+  lacked entirely — every prior command required an already-known
+  `league_id`), exposed via `nuclearff sleeper user-leagues`/`user-drafts`,
+  which resolve a Sleeper username to its user id before listing. Wired the
+  previously dead-code `get_matchups`/`get_trending` client methods into
+  `nuclearff sleeper fetch-league --matchups` (weekly matchups persisted to
+  a new `sleeper_matchups` DuckDB table via `nuclearff.sleeper.matchups`,
+  combined with the issue #16 history chain) and `nuclearff sleeper
+  trending`. `LeagueSnapshot`/`fetch_league_snapshot` now also capture
+  `draft_traded_picks`, previously fetched by the client but never stored.
+  `get_players` accepts `position=`/`active=` query filters, per the
+  documented endpoint — verified live to cut the payload from ~14.6 MB to
+  ~435 KB for `position="QB", active=True`; filtered calls bypass the disk
+  cache, which is specifically the full unfiltered map's contract. Sleeper
+  transaction wiring (also flagged as dead code by this issue's original
+  audit) is intentionally not repeated here — that is
+  [issue #20](https://github.com/nolmacdonald/nuclearff/issues/20)'s scope.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,

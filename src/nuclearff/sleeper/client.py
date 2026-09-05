@@ -232,6 +232,48 @@ class SleeperClient:
         """
         return self._get_dict(f"/v1/state/{sport}")
 
+    def get_user(self, username_or_id: str) -> dict[str, Any]:
+        """Return a user object, the entry point from a Sleeper username.
+
+        Args:
+            username_or_id: A Sleeper username or numeric user id; both
+                resolve the same way.
+
+        Returns:
+            The user object, including ``user_id`` and ``display_name``.
+        """
+        return self._get_dict(f"/v1/user/{username_or_id}")
+
+    def get_user_leagues(
+        self, user_id: str, season: int | str, sport: str = "nfl"
+    ) -> list[dict[str, Any]]:
+        """Return every league a user belongs to for a season.
+
+        Args:
+            user_id: Sleeper user identifier (from :meth:`get_user`).
+            season: Season year, e.g. ``2026``.
+            sport: Sport key, such as ``"nfl"``.
+
+        Returns:
+            One league object per league the user belongs to that season.
+        """
+        return self._get_list(f"/v1/user/{user_id}/leagues/{sport}/{season}")
+
+    def get_user_drafts(
+        self, user_id: str, season: int | str, sport: str = "nfl"
+    ) -> list[dict[str, Any]]:
+        """Return every draft a user is in for a season.
+
+        Args:
+            user_id: Sleeper user identifier (from :meth:`get_user`).
+            season: Season year, e.g. ``2026``.
+            sport: Sport key, such as ``"nfl"``.
+
+        Returns:
+            One draft object per draft the user is in that season.
+        """
+        return self._get_list(f"/v1/user/{user_id}/drafts/{sport}/{season}")
+
     def get_league(self, league_id: str) -> dict[str, Any]:
         """Return a league object.
 
@@ -413,19 +455,44 @@ class SleeperClient:
             return None
         return (time.time() - path.stat().st_mtime) / 3600.0
 
-    def get_players(self, force_refresh: bool = False) -> dict[str, Any]:
-        """Return the full NFL player map, served from disk cache when fresh.
+    def get_players(
+        self,
+        force_refresh: bool = False,
+        *,
+        position: str | None = None,
+        active: bool | None = None,
+    ) -> dict[str, Any]:
+        """Return the NFL player map, served from disk cache when fresh.
 
-        The payload is roughly 5 MB, which Sleeper asks callers to fetch no more
-        than once per day. It is cached on disk and only re-fetched once the
-        cache exceeds ``players_ttl_hours``.
+        The unfiltered payload is roughly 5 MB, which Sleeper asks callers to
+        fetch no more than once per day; it is cached on disk and only
+        re-fetched once the cache exceeds ``players_ttl_hours``. Passing
+        ``position`` or ``active`` asks Sleeper to filter server-side instead
+        — confirmed live to cut the payload from ~14.6 MB to ~435 KB for
+        ``position="QB", active=True`` — but bypasses the disk cache entirely,
+        since the cache's contract is specifically the full unfiltered map;
+        caching every filter combination separately isn't worth the
+        complexity for what nuclearff currently needs this for.
 
         Args:
-            force_refresh: Fetch from the API even if the cache is still fresh.
+            force_refresh: Fetch from the API even if the cache is still
+                fresh. Ignored when ``position`` or ``active`` is given, since
+                those calls never use the cache.
+            position: Only return players whose fantasy positions include
+                this position, e.g. ``"QB"``.
+            active: When ``True``, only return active players.
 
         Returns:
             A mapping of Sleeper player ID to player object.
         """
+        if position is not None or active is not None:
+            query: list[str] = []
+            if position is not None:
+                query.append(f"position={position}")
+            if active is not None:
+                query.append(f"active={'true' if active else 'false'}")
+            return self._get_dict(f"/v1/players/nfl?{'&'.join(query)}")
+
         age = self._players_cache_age_hours()
         if not force_refresh and age is not None and age < self.players_ttl_hours:
             logger.debug(
