@@ -1,6 +1,12 @@
 """Read-only Sleeper API client and league snapshot capture."""
 
 from nuclearff.sleeper.client import SleeperClient
+from nuclearff.sleeper.leagues import (
+    league_config_rows,
+    league_rows,
+    walk_league_chain,
+    write_league_tables,
+)
 from nuclearff.sleeper.models import (
     Anomaly,
     LeagueSnapshot,
@@ -20,7 +26,11 @@ __all__ = [
     "SnapshotMetadata",
     "detect_anomalies",
     "fetch_league_snapshot",
+    "league_config_rows",
+    "league_rows",
     "player_rows",
+    "walk_league_chain",
+    "write_league_tables",
     "write_players_table",
     "write_snapshot",
 ]

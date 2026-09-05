@@ -34,9 +34,12 @@ from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
     fetch_league_snapshot,
+    walk_league_chain,
+    write_league_tables,
     write_players_table,
     write_snapshot,
 )
+from nuclearff.sleeper.leagues import DEFAULT_MAX_SEASONS
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +163,8 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     """Capture an immutable snapshot of a league and report any anomalies.
 
     Args:
-        args: Parsed arguments carrying ``league_id``.
+        args: Parsed arguments carrying ``league_id``, ``history``, and
+            ``max_seasons``.
 
     Returns:
         An exit code.
@@ -170,6 +174,13 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         snapshot = fetch_league_snapshot(client, args.league_id)
+
+        if args.history:
+            leagues = walk_league_chain(
+                client, args.league_id, max_seasons=args.max_seasons
+            )
+            db_path = config.paths.cache_dir / "nuclearff.duckdb"
+            raw_count, config_count = write_league_tables(leagues, db_path)
 
     target = write_snapshot(snapshot, config.paths.raw_dir)
 
@@ -205,6 +216,11 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
             label = anomaly.severity.upper()
             print(f"  [{label}] {anomaly.code}: {anomaly.message}")
             print(f"           -> {anomaly.action}")
+
+    if args.history:
+        print(f"\nHistory:  {len(leagues)} season(s) walked")
+        print(f"Configs:  {config_count}/{raw_count} parsed into LeagueConfig")
+        print(f"Database: {db_path}")
 
     return EXIT_OK
 
@@ -345,6 +361,23 @@ def build_parser() -> argparse.ArgumentParser:
         "fetch-league", help="Capture an immutable league snapshot"
     )
     fetch.add_argument("--league-id", required=True, help="Sleeper league identifier")
+    fetch.add_argument(
+        "--history",
+        action="store_true",
+        help=(
+            "Also walk previous_league_id back through prior seasons and "
+            "write raw + parsed league history to DuckDB"
+        ),
+    )
+    fetch.add_argument(
+        "--max-seasons",
+        type=int,
+        default=DEFAULT_MAX_SEASONS,
+        help=(
+            f"Maximum seasons to walk when --history is set "
+            f"(default: {DEFAULT_MAX_SEASONS})"
+        ),
+    )
     fetch.set_defaults(func=_cmd_sleeper_fetch_league)
 
     fetch_players = sleeper_commands.add_parser(

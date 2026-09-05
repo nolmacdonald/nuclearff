@@ -26,6 +26,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and stores a normalized subset of columns (including `gsis_id` and other
   cross-platform IDs) in a local DuckDB table for identity mapping against
   nflverse and other sources.
+- `nuclearff sleeper fetch-league --history` (GitHub Issue 16) and
+  `nuclearff.sleeper.leagues`: walks a league's `previous_league_id` chain
+  backward via `SleeperClient.get_league`, reusing
+  `config.league.league_config_from_sleeper` per hop, and persists both raw
+  (`sleeper_leagues`, settings/scoring_settings/roster_positions as JSON
+  columns) and parsed (`sleeper_league_configs`) tables to DuckDB via the
+  existing `duckdb_io.replace_table` pattern. A hop that fails to fetch stops
+  the walk without raising (its own `previous_league_id` is needed to
+  continue); a hop that fetches but fails to type into `LeagueConfig` keeps
+  its raw row with no config row, rather than aborting. Verified live against
+  the real league: the chain reaches all the way back to the league's 2021
+  inception (6 seasons, `1367225133634191360` -> ... -> `731562064849539072`),
+  well past the technical plan's benchmark of reaching `1240509989819273216`,
+  and both tables round-trip through DuckDB for every hop.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,
