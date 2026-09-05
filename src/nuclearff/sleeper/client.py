@@ -347,6 +347,37 @@ class SleeperClient:
         """
         return self._get_list(f"/v1/draft/{draft_id}/traded_picks")
 
+    def get_winners_bracket(self, league_id: str) -> list[dict[str, Any]]:
+        """Return the winners' playoff bracket for a league.
+
+        Args:
+            league_id: Sleeper league identifier.
+
+        Returns:
+            One object per bracket match: ``m`` (match id), ``r`` (round),
+            ``t1``/``t2`` (roster ids, or unresolved until an earlier match
+            decides them), ``w``/``l`` (winner/loser roster id once decided),
+            ``p`` (final placement awarded by this match, when present), and
+            ``t1_from``/``t2_from`` (references to an earlier match's winner
+            or loser, for rounds whose participants aren't known roster ids
+            yet). Empty before the league has a playoff bracket.
+        """
+        return self._get_list(f"/v1/league/{league_id}/winners_bracket")
+
+    def get_losers_bracket(self, league_id: str) -> list[dict[str, Any]]:
+        """Return the losers' (consolation) playoff bracket for a league.
+
+        Same shape as :meth:`get_winners_bracket`. Not every league runs a
+        losers bracket; empty when it doesn't.
+
+        Args:
+            league_id: Sleeper league identifier.
+
+        Returns:
+            One object per bracket match.
+        """
+        return self._get_list(f"/v1/league/{league_id}/losers_bracket")
+
     def get_trending(
         self, kind: str = "add", lookback_hours: int = 24, limit: int = 25
     ) -> list[dict[str, Any]]:
