@@ -1,9 +1,10 @@
 """Command-line interface for nuclearff.
 
-Commands are grouped by concern (``config``, ``sleeper``, ``ids``). Every command reads
-its settings from a configuration file so that a run can be reproduced from a
-git SHA plus a config, and every command returns an exit code rather than
-calling :func:`sys.exit` directly, which keeps them testable.
+Commands are grouped by concern (``config``, ``sleeper``, ``ids``, ``report``).
+Every command reads its settings from a configuration file so that a run can
+be reproduced from a git SHA plus a config, and every command returns an
+exit code rather than calling :func:`sys.exit` directly, which keeps them
+testable.
 """
 
 from __future__ import annotations
@@ -278,6 +279,57 @@ def _cmd_ids_resolve_gsis(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_auction_board(args: argparse.Namespace) -> int:
+    """Build the auction draft board and write the CSV, tables, and report.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.pipeline import build_auction_board
+    from nuclearff.report import write_report
+
+    config = _resolve_config(args)
+    config.paths.ensure()
+    configure_nflverse_cache(config.paths.cache_dir)
+
+    seasons = [int(season) for season in args.seasons]
+    client = SleeperClient(cache_dir=config.paths.cache_dir)
+    board, context = build_auction_board(
+        args.league_id,
+        seasons=seasons,
+        as_of_season=args.as_of_season,
+        client=client,
+        baseline=args.baseline,
+    )
+
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else config.paths.artifacts_dir / f"{args.league_id}-{args.as_of_season}"
+    )
+    report_path = write_report(
+        board,
+        context,
+        out_dir,
+        top_n=args.top,
+        render_tables=not args.no_tables,
+    )
+
+    in_pool = board.filter(pl.col("in_draft_pool")).height
+    print(f"League:          {context['league_name']} ({context['season']})")
+    print(
+        f"Budget:          ${context['budget_per_team']}/team x "
+        f"{context['num_teams']} teams"
+    )
+    print(f"Players valued:  {board.height}")
+    print(f"In draft pool:   {in_pool}")
+    print(f"Report:          {report_path}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -368,6 +420,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fill missing Sleeper gsis_id values via the nflverse crosswalk",
     )
     resolve_gsis.set_defaults(func=_cmd_ids_resolve_gsis)
+
+    report_parser = groups.add_parser("report", help="Build draft boards and reports")
+    report_commands = report_parser.add_subparsers(dest="command", metavar="<command>")
+    report_commands.required = True
+
+    auction_board = report_commands.add_parser(
+        "auction-board",
+        help="Build an auction draft board (CSV, position tables, report.md)",
+    )
+    auction_board.add_argument(
+        "league_id", help="Sleeper league identifier (must have an auction draft)"
+    )
+    auction_board.add_argument(
+        "--seasons",
+        nargs="+",
+        required=True,
+        help="Historical seasons to score, oldest first (e.g. 2023 2024 2025)",
+    )
+    auction_board.add_argument(
+        "--as-of-season",
+        type=int,
+        required=True,
+        help="The season being drafted for (e.g. 2026)",
+    )
+    auction_board.add_argument(
+        "--baseline",
+        choices=("vols", "vorp"),
+        default="vols",
+        help="Replacement baseline (default: vols)",
+    )
+    auction_board.add_argument(
+        "--top", type=int, default=12, help="Players per position table (default: 12)"
+    )
+    auction_board.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output directory (default: <artifacts>/<league_id>-<season>)",
+    )
+    auction_board.add_argument(
+        "--no-tables",
+        action="store_true",
+        help="Skip PNG tables (avoids the plottable/matplotlib dev extra)",
+    )
+    auction_board.set_defaults(func=_cmd_report_auction_board)
 
     return parser
 

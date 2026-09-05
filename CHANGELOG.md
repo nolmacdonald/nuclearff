@@ -149,6 +149,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   git SHA/dirty-state capture, deterministic config hashing, JSON
   round-trip. Not yet called by anything — infrastructure for the ranking
   pipeline (`ff_revised.md` Issue 20) once it exists.
+- `nuclearff.nflverse.rankings`: FantasyPros expert-consensus rankings via
+  `nflreadpy.load_ff_rankings` (no scraping) — `load_fantasypros_ecr`,
+  `attach_player_ids` (exact `fantasypros_id` -> `gsis_id` join, ambiguous IDs
+  skipped rather than guessed), and `consensus_adp` normalizing to the
+  pipeline's market-value schema. Labeled `source="fantasypros_ecr"`
+  throughout: this is expert *consensus ranking*, not observed ADP, and the
+  module says so rather than implying draft-behavior data it does not have.
+  Verified live: 446/450 (99.1%) of QB/RB/WR/TE rows resolve to a `gsis_id`.
+- `nuclearff.pipeline.auction_board`: the wiring layer taking a Sleeper league
+  id to a priced draft board — league scoring -> realized points -> recency-
+  weighted value estimate -> per-position replacement level and VORP ->
+  auction dollars -> FantasyPros consensus join. Returns the board plus a
+  context dict of league facts so reports never hardcode a league's settings.
+- `nuclearff.report`: `write_board_csv`, `render_position_table` (per-position
+  top-N PNG via `plottable`, matching `dev/tables/ex_table.py`'s conventions),
+  and `write_report` (CSV + tables + `report.md` with methodology and
+  caveats). Rendering dependencies are imported lazily so the package still
+  imports without the `dev` extra.
+- `nuclearff report auction-board <league_id> --seasons ... --as-of-season ...`,
+  wiring the above into the CLI.
+- `nuclearff.valuation.auction`: `budget_from_draft` (reads the confirmed
+  `draft.settings.budget`, and refuses to assume a conventional $200 when
+  absent), `auction_values` (VBD -> dollars; dollars sum to exactly the league
+  budget across the draft pool), `keeper_inflation_multiplier`, and
+  `keeper_adjusted_values`. Keeper *costs* must be supplied by the caller —
+  Sleeper exposes no keeper price, and this module never invents one.
 - Typed exception hierarchy (`NuclearffError`, `ConfigError`, `SleeperAPIError`,
   `StorageError`, and friends).
 - Logging configuration utilities.
