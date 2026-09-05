@@ -195,6 +195,74 @@ def test_force_refresh_bypasses_a_fresh_cache(client):
     assert client.get_players(force_refresh=True) == {"2": {}}
 
 
+@responses.activate
+def test_get_players_with_position_filter_sends_query_params(client):
+    """A position filter is sent as a query param, not applied client-side."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl?position=QB",
+        json={"4046": {"position": "QB"}},
+    )
+
+    result = client.get_players(position="QB")
+
+    assert result == {"4046": {"position": "QB"}}
+
+
+@responses.activate
+def test_get_players_with_active_filter_sends_query_params(client):
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl?active=true",
+        json={"4046": {"active": True}},
+    )
+
+    assert client.get_players(active=True) == {"4046": {"active": True}}
+
+
+@responses.activate
+def test_get_players_filtered_call_bypasses_the_disk_cache(client):
+    """A filtered call never reads or writes the full-map cache file."""
+    responses.get(f"{TEST_BASE_URL}/v1/players/nfl", json={"full": True})
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl?position=QB", json={"filtered": True}
+    )
+
+    client.get_players()  # populates the disk cache with the full map
+    filtered = client.get_players(position="QB")
+
+    assert filtered == {"filtered": True}
+    assert len(responses.calls) == 2
+    assert json.loads(client.players_cache_path.read_text()) == {"full": True}
+
+
+@responses.activate
+def test_get_user_returns_payload(client):
+    """A username or user id both resolve through the same endpoint."""
+    payload = {"user_id": "332632476830679040", "display_name": "nolmacdonald"}
+    responses.get(f"{TEST_BASE_URL}/v1/user/nolmacdonald", json=payload)
+
+    assert client.get_user("nolmacdonald") == payload
+
+
+@responses.activate
+def test_get_user_leagues_returns_list(client):
+    leagues = [{"league_id": "1", "name": "Test League"}]
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/leagues/nfl/2026", json=leagues
+    )
+
+    assert client.get_user_leagues("332632476830679040", 2026) == leagues
+
+
+@responses.activate
+def test_get_user_drafts_returns_list(client):
+    drafts = [{"draft_id": "1", "status": "complete"}]
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/drafts/nfl/2026", json=drafts
+    )
+
+    assert client.get_user_drafts("332632476830679040", 2026) == drafts
+
+
 def test_avatar_url():
     """Avatars come from the CDN, not the API."""
     assert SleeperClient.avatar_url("abc") == "https://sleepercdn.com/avatars/abc"

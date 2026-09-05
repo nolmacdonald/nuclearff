@@ -34,6 +34,7 @@ from nuclearff.nflverse import configure_cache as configure_nflverse_cache
 from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
+    fetch_and_write_matchups,
     fetch_and_write_standings,
     fetch_league_snapshot,
     walk_league_chain,
@@ -42,6 +43,7 @@ from nuclearff.sleeper import (
     write_snapshot,
 )
 from nuclearff.sleeper.leagues import DEFAULT_MAX_SEASONS
+from nuclearff.sleeper.matchups import DEFAULT_MAX_WEEK
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +168,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
     Args:
         args: Parsed arguments carrying ``league_id``, ``history``,
-            ``standings``, and ``max_seasons``.
+            ``standings``, ``matchups``, ``max_seasons``, and ``max_week``.
 
     Returns:
         An exit code.
@@ -177,7 +179,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         snapshot = fetch_league_snapshot(client, args.league_id)
 
-        if args.history or args.standings:
+        if args.history or args.standings or args.matchups:
             leagues = walk_league_chain(
                 client, args.league_id, max_seasons=args.max_seasons
             )
@@ -189,6 +191,11 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
         if args.standings:
             standings_count, matches_count = fetch_and_write_standings(
                 client, leagues, db_path
+            )
+
+        if args.matchups:
+            matchup_count = fetch_and_write_matchups(
+                client, leagues, db_path, max_week=args.max_week
             )
 
     target = write_snapshot(snapshot, config.paths.raw_dir)
@@ -237,6 +244,11 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
         if not args.history:
             print(f"Database:  {db_path}")
 
+    if args.matchups:
+        print(f"\nMatchups: {matchup_count} roster-week row(s)")
+        if not (args.history or args.standings):
+            print(f"Database: {db_path}")
+
     return EXIT_OK
 
 
@@ -260,6 +272,87 @@ def _cmd_sleeper_fetch_players(args: argparse.Namespace) -> int:
 
     print(f"Players:  {count}")
     print(f"Database: {db_path}")
+    return EXIT_OK
+
+
+def _cmd_sleeper_user_leagues(args: argparse.Namespace) -> int:
+    """Resolve a Sleeper username to a user id and list their leagues for a season.
+
+    The primary entry point for "I have a username, what leagues are they
+    in" — without this, nuclearff can only start from an already-known
+    ``league_id``.
+
+    Args:
+        args: Parsed arguments carrying ``username``, ``season``, and
+            ``sport``.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        user = client.get_user(args.username)
+        leagues = client.get_user_leagues(
+            user["user_id"], args.season, sport=args.sport
+        )
+
+    print(f"User:    {user.get('display_name')} ({user['user_id']})")
+    print(f"Leagues: {len(leagues)} for {args.sport} {args.season}")
+    for league in leagues:
+        print(
+            f"  {league.get('league_id')}  {league.get('name')}  "
+            f"status={league.get('status')}"
+        )
+    return EXIT_OK
+
+
+def _cmd_sleeper_user_drafts(args: argparse.Namespace) -> int:
+    """Resolve a Sleeper username to a user id and list their drafts for a season.
+
+    Args:
+        args: Parsed arguments carrying ``username``, ``season``, and
+            ``sport``.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        user = client.get_user(args.username)
+        drafts = client.get_user_drafts(user["user_id"], args.season, sport=args.sport)
+
+    print(f"User:   {user.get('display_name')} ({user['user_id']})")
+    print(f"Drafts: {len(drafts)} for {args.sport} {args.season}")
+    for draft in drafts:
+        print(
+            f"  {draft.get('draft_id')}  status={draft.get('status')}  "
+            f"type={draft.get('type')}"
+        )
+    return EXIT_OK
+
+
+def _cmd_sleeper_trending(args: argparse.Namespace) -> int:
+    """Print trending players by adds or drops.
+
+    Args:
+        args: Parsed arguments carrying ``kind``, ``lookback_hours``, and
+            ``limit``.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        trending = client.get_trending(
+            kind=args.kind, lookback_hours=args.lookback_hours, limit=args.limit
+        )
+
+    print(f"Trending {args.kind} (last {args.lookback_hours}h):")
+    for entry in trending:
+        print(f"  {entry.get('player_id')!s:>8}  count={entry.get('count')}")
     return EXIT_OK
 
 
@@ -444,12 +537,29 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch.add_argument(
+        "--matchups",
+        action="store_true",
+        help=(
+            "Also fetch weekly matchups per season (implies --history) and "
+            "write them to DuckDB"
+        ),
+    )
+    fetch.add_argument(
         "--max-seasons",
         type=int,
         default=DEFAULT_MAX_SEASONS,
         help=(
-            f"Maximum seasons to walk when --history or --standings is set "
-            f"(default: {DEFAULT_MAX_SEASONS})"
+            f"Maximum seasons to walk when --history, --standings, or "
+            f"--matchups is set (default: {DEFAULT_MAX_SEASONS})"
+        ),
+    )
+    fetch.add_argument(
+        "--max-week",
+        type=int,
+        default=DEFAULT_MAX_WEEK,
+        help=(
+            f"Maximum week to fetch per season when --matchups is set "
+            f"(default: {DEFAULT_MAX_WEEK})"
         ),
     )
     fetch.set_defaults(func=_cmd_sleeper_fetch_league)
@@ -463,6 +573,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-fetch even if the on-disk player cache is still fresh",
     )
     fetch_players.set_defaults(func=_cmd_sleeper_fetch_players)
+
+    user_leagues = sleeper_commands.add_parser(
+        "user-leagues", help="List a Sleeper user's leagues for a season"
+    )
+    user_leagues.add_argument("username", help="Sleeper username or user id")
+    user_leagues.add_argument("--season", required=True, help="Season year, e.g. 2026")
+    user_leagues.add_argument("--sport", default="nfl", help="Sport key (default: nfl)")
+    user_leagues.set_defaults(func=_cmd_sleeper_user_leagues)
+
+    user_drafts = sleeper_commands.add_parser(
+        "user-drafts", help="List a Sleeper user's drafts for a season"
+    )
+    user_drafts.add_argument("username", help="Sleeper username or user id")
+    user_drafts.add_argument("--season", required=True, help="Season year, e.g. 2026")
+    user_drafts.add_argument("--sport", default="nfl", help="Sport key (default: nfl)")
+    user_drafts.set_defaults(func=_cmd_sleeper_user_drafts)
+
+    trending = sleeper_commands.add_parser(
+        "trending", help="Print trending players by adds or drops"
+    )
+    trending.add_argument(
+        "--kind", choices=("add", "drop"), default="add", help="Trending kind"
+    )
+    trending.add_argument(
+        "--lookback-hours", type=int, default=24, help="Lookback window in hours"
+    )
+    trending.add_argument(
+        "--limit", type=int, default=25, help="Maximum players to return"
+    )
+    trending.set_defaults(func=_cmd_sleeper_trending)
 
     ids_parser = groups.add_parser(
         "ids", help="Cross-source player identity resolution"

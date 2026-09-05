@@ -40,6 +40,7 @@ def _register_league(league, draft, users, rosters, state):
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft])
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft)
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state)
 
 
@@ -160,7 +161,7 @@ def test_fetch_snapshot_captures_every_endpoint(
     assert snapshot.draft is not None
     assert snapshot.state == state_payload
     assert snapshot.metadata.missing == []
-    assert len(snapshot.metadata.endpoints) == 8
+    assert len(snapshot.metadata.endpoints) == 9
     assert len(snapshot.warnings) == 2
 
 

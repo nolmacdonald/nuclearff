@@ -73,6 +73,9 @@ class LeagueSnapshot(BaseModel):
         drafts: Every draft associated with the league.
         draft: The league's current draft object, when retrievable.
         draft_picks: Picks made in the current draft.
+        draft_traded_picks: Picks traded within the current draft (distinct
+            from ``traded_picks``, which is traded *future* picks at the
+            league level).
         traded_picks: Traded picks at the league level.
         state: The sport's current league-year state.
         anomalies: Settings flagged for human confirmation.
@@ -88,6 +91,7 @@ class LeagueSnapshot(BaseModel):
     drafts: list[dict[str, Any]] = Field(default_factory=list)
     draft: dict[str, Any] | None = None
     draft_picks: list[dict[str, Any]] = Field(default_factory=list)
+    draft_traded_picks: list[dict[str, Any]] = Field(default_factory=list)
     traded_picks: list[dict[str, Any]] = Field(default_factory=list)
     state: dict[str, Any] | None = None
     anomalies: list[Anomaly] = Field(default_factory=list)

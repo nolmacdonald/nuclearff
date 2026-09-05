@@ -138,6 +138,7 @@ def test_sleeper_fetch_league(
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
 
     exit_code = main(
@@ -212,6 +213,7 @@ def test_sleeper_fetch_league_with_history_walks_and_writes_duckdb(
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
 
     exit_code = main(
@@ -277,6 +279,7 @@ def test_sleeper_fetch_league_with_standings_writes_standings_and_matches(
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
     responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
 
     exit_code = main(
@@ -305,6 +308,151 @@ def test_sleeper_fetch_league_with_standings_writes_standings_and_matches(
             ).fetchall()
         }
     assert seasons == {LEAGUE_ID, PREVIOUS_LEAGUE_ID}
+
+
+@responses.activate
+def test_sleeper_fetch_league_with_matchups_writes_matchups(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    rosters_payload,
+    state_payload,
+):
+    """--matchups walks history (implicitly) and persists weekly matchups."""
+    import duckdb
+
+    from tests.test_sleeper_leagues import PREVIOUS_LEAGUE_ID
+
+    previous_league_payload = dict(league_payload)
+    previous_league_payload["league_id"] = PREVIOUS_LEAGUE_ID
+    previous_league_payload["season"] = 2025
+    previous_league_payload["previous_league_id"] = None
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=users_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=rosters_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+    for league_id in (LEAGUE_ID, PREVIOUS_LEAGUE_ID):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/matchups/1",
+            json=[{"roster_id": 1, "matchup_id": 1, "points": 100.0}],
+        )
+        responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/matchups/2", json=[])
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-league",
+            "--league-id",
+            LEAGUE_ID,
+            "--matchups",
+            "--max-week",
+            "2",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Matchups: 2 roster-week row(s)" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        (count,) = conn.execute("SELECT COUNT(*) FROM sleeper_matchups").fetchone()
+    assert count == 2
+
+
+@responses.activate
+def test_sleeper_user_leagues_resolves_username_and_lists_leagues(tmp_path, capsys):
+    """user-leagues resolves a username to a user id, then lists their leagues."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/nolmacdonald",
+        json={"user_id": "332632476830679040", "display_name": "nolmacdonald"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/leagues/nfl/2026",
+        json=[
+            {"league_id": "1", "name": "Test League One", "status": "in_season"},
+            {"league_id": "2", "name": "Test League Two", "status": "pre_draft"},
+        ],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "user-leagues",
+            "nolmacdonald",
+            "--season",
+            "2026",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "nolmacdonald (332632476830679040)" in out
+    assert "Leagues: 2 for nfl 2026" in out
+    assert "Test League One" in out
+    assert "Test League Two" in out
+
+
+@responses.activate
+def test_sleeper_user_drafts_resolves_username_and_lists_drafts(tmp_path, capsys):
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/nolmacdonald",
+        json={"user_id": "332632476830679040", "display_name": "nolmacdonald"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/drafts/nfl/2026",
+        json=[{"draft_id": "1", "status": "complete", "type": "snake"}],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "user-drafts",
+            "nolmacdonald",
+            "--season",
+            "2026",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Drafts: 1 for nfl 2026" in out
+    assert "status=complete" in out
+
+
+@responses.activate
+def test_sleeper_trending_prints_players_and_counts(tmp_path, capsys):
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl/trending/add?lookback_hours=24&limit=25",
+        json=[{"player_id": "10235", "count": 208144}],
+    )
+
+    exit_code = main(["--root", str(tmp_path), "sleeper", "trending"])
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Trending add (last 24h):" in out
+    assert "10235" in out
+    assert "count=208144" in out
 
 
 @responses.activate
