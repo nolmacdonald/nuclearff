@@ -241,6 +241,73 @@ def test_sleeper_fetch_league_with_history_walks_and_writes_duckdb(
 
 
 @responses.activate
+def test_sleeper_fetch_league_with_standings_writes_standings_and_matches(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    rosters_payload,
+    state_payload,
+):
+    """--standings walks history (implicitly), persisting standings + bracket tables."""
+    import duckdb
+
+    from tests.test_sleeper_leagues import PREVIOUS_LEAGUE_ID
+
+    previous_league_payload = dict(league_payload)
+    previous_league_payload["league_id"] = PREVIOUS_LEAGUE_ID
+    previous_league_payload["season"] = 2025
+    previous_league_payload["previous_league_id"] = None
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+    for league_id in (LEAGUE_ID, PREVIOUS_LEAGUE_ID):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/users", json=users_payload
+        )
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/rosters", json=rosters_payload
+        )
+        responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/winners_bracket", json=[])
+        responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/losers_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-league",
+            "--league-id",
+            LEAGUE_ID,
+            "--standings",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Standings: 4 roster-season(s)" in out
+    assert "Playoffs:  0 bracket match(es)" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        seasons = {
+            row[0]
+            for row in conn.execute(
+                "SELECT DISTINCT league_id FROM sleeper_standings"
+            ).fetchall()
+        }
+    assert seasons == {LEAGUE_ID, PREVIOUS_LEAGUE_ID}
+
+
+@responses.activate
 def test_sleeper_fetch_players(tmp_path, capsys):
     """fetch-players stores the player map in DuckDB under the cache dir."""
     import duckdb

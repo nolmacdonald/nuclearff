@@ -34,6 +34,7 @@ from nuclearff.nflverse import configure_cache as configure_nflverse_cache
 from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
+    fetch_and_write_standings,
     fetch_league_snapshot,
     walk_league_chain,
     write_league_tables,
@@ -164,8 +165,8 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     """Capture an immutable snapshot of a league and report any anomalies.
 
     Args:
-        args: Parsed arguments carrying ``league_id``, ``history``, and
-            ``max_seasons``.
+        args: Parsed arguments carrying ``league_id``, ``history``,
+            ``standings``, and ``max_seasons``.
 
     Returns:
         An exit code.
@@ -176,12 +177,19 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         snapshot = fetch_league_snapshot(client, args.league_id)
 
-        if args.history:
+        if args.history or args.standings:
             leagues = walk_league_chain(
                 client, args.league_id, max_seasons=args.max_seasons
             )
             db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+        if args.history:
             raw_count, config_count = write_league_tables(leagues, db_path)
+
+        if args.standings:
+            standings_count, matches_count = fetch_and_write_standings(
+                client, leagues, db_path
+            )
 
     target = write_snapshot(snapshot, config.paths.raw_dir)
 
@@ -222,6 +230,12 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
         print(f"\nHistory:  {len(leagues)} season(s) walked")
         print(f"Configs:  {config_count}/{raw_count} parsed into LeagueConfig")
         print(f"Database: {db_path}")
+
+    if args.standings:
+        print(f"\nStandings: {standings_count} roster-season(s)")
+        print(f"Playoffs:  {matches_count} bracket match(es)")
+        if not args.history:
+            print(f"Database:  {db_path}")
 
     return EXIT_OK
 
@@ -422,11 +436,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch.add_argument(
+        "--standings",
+        action="store_true",
+        help=(
+            "Also compute standings and playoff results per season "
+            "(implies --history) and write them to DuckDB"
+        ),
+    )
+    fetch.add_argument(
         "--max-seasons",
         type=int,
         default=DEFAULT_MAX_SEASONS,
         help=(
-            f"Maximum seasons to walk when --history is set "
+            f"Maximum seasons to walk when --history or --standings is set "
             f"(default: {DEFAULT_MAX_SEASONS})"
         ),
     )

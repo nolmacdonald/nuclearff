@@ -40,6 +40,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inception (6 seasons, `1367225133634191360` -> ... -> `731562064849539072`),
   well past the technical plan's benchmark of reaching `1240509989819273216`,
   and both tables round-trip through DuckDB for every hop.
+- `nuclearff sleeper fetch-league --standings` (GitHub Issue 21, implies
+  `--history`) and `nuclearff.sleeper.standings`: `SleeperClient.get_winners_bracket`/
+  `get_losers_bracket`, plus per-season standings (wins/losses/ties/points,
+  owner display name) and playoff bracket data persisted to DuckDB
+  (`sleeper_standings`, `sleeper_playoff_matches`). Final placement is
+  computed **only** from winners-bracket matches carrying a `p` (placement)
+  field — a match's winner gets rank `p`, its loser `p + 1`, confirmed
+  against a real completed season. The losers bracket's own `p` field is
+  captured raw but deliberately not used to compute `final_rank`: whether it
+  continues the same overall numbering or restarts among just the
+  losers-bracket teams couldn't be confirmed against real data, so those
+  rosters get a `NULL` final rank rather than a guessed one. Verified live:
+  the real league's 2025 season shows exactly this in practice — the
+  regular-season wins leader (20-8) finished 4th place, while the eventual
+  champion had fewer wins (16-12), and the 4 teams that only reached the
+  losers bracket correctly show `NULL`.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,

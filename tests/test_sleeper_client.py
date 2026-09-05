@@ -139,6 +139,25 @@ def test_trending_rejects_unknown_kind(client):
 
 
 @responses.activate
+def test_get_winners_bracket_returns_match_list(client):
+    """A bracket is a list of match objects, same shape as other list endpoints."""
+    matches = [{"m": 1, "r": 1, "t1": 1, "t2": 2, "w": 1, "l": 2}]
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=matches
+    )
+
+    assert client.get_winners_bracket(LEAGUE_ID) == matches
+
+
+@responses.activate
+def test_get_losers_bracket_empty_when_league_has_none(client):
+    """Not every league runs a losers bracket; an empty array is valid."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
+
+    assert client.get_losers_bracket(LEAGUE_ID) == []
+
+
+@responses.activate
 def test_players_payload_is_cached_on_disk(client):
     """The ~5MB player map is fetched once and then served from disk."""
     payload = {"4046": {"full_name": "Patrick Mahomes"}}
