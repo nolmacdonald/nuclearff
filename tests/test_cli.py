@@ -418,7 +418,14 @@ def test_sleeper_user_drafts_resolves_username_and_lists_drafts(tmp_path, capsys
     )
     responses.get(
         f"{TEST_BASE_URL}/v1/user/332632476830679040/drafts/nfl/2026",
-        json=[{"draft_id": "1", "status": "complete", "type": "snake"}],
+        json=[
+            {
+                "draft_id": "1",
+                "status": "complete",
+                "type": "snake",
+                "metadata": {"name": "NUCLEARFF CHOPPED $100"},
+            }
+        ],
     )
 
     exit_code = main(
@@ -436,11 +443,41 @@ def test_sleeper_user_drafts_resolves_username_and_lists_drafts(tmp_path, capsys
     assert exit_code == EXIT_OK
     out = capsys.readouterr().out
     assert "Drafts: 1 for nfl 2026" in out
+    assert "NUCLEARFF CHOPPED $100" in out
     assert "status=complete" in out
 
 
 @responses.activate
-def test_sleeper_trending_prints_players_and_counts(tmp_path, capsys):
+def test_sleeper_user_drafts_handles_missing_metadata(tmp_path, capsys):
+    """A draft with no metadata (or no name in it) doesn't crash the command."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/nolmacdonald",
+        json={"user_id": "332632476830679040", "display_name": "nolmacdonald"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/drafts/nfl/2026",
+        json=[{"draft_id": "1", "status": "complete", "type": "snake"}],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "user-drafts",
+            "nolmacdonald",
+            "--season",
+            "2026",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "unknown" in capsys.readouterr().out
+
+
+@responses.activate
+def test_sleeper_trending_without_a_players_table_shows_raw_ids(tmp_path, capsys):
+    """With no local player table, trending falls back to raw ids with a hint."""
     responses.get(
         f"{TEST_BASE_URL}/v1/players/nfl/trending/add?lookback_hours=24&limit=25",
         json=[{"player_id": "10235", "count": 208144}],
@@ -451,8 +488,42 @@ def test_sleeper_trending_prints_players_and_counts(tmp_path, capsys):
     assert exit_code == EXIT_OK
     out = capsys.readouterr().out
     assert "Trending add (last 24h):" in out
-    assert "10235" in out
+    assert "player_id=10235" in out
     assert "count=208144" in out
+    assert "fetch-players" in out
+
+
+@responses.activate
+def test_sleeper_trending_resolves_names_from_the_local_players_table(tmp_path, capsys):
+    """With a populated players table, trending prints real names."""
+    from nuclearff.sleeper.players import write_players_table
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    write_players_table(
+        {
+            "10235": {"full_name": "Ja'Marr Chase"},
+            # Real team-defense entries have no full_name (confirmed live
+            # against Sleeper's actual payload for "LV") -- only first/last.
+            "LV": {"first_name": "Las Vegas", "last_name": "Raiders"},
+        },
+        db_path,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/players/nfl/trending/add?lookback_hours=24&limit=25",
+        json=[
+            {"player_id": "10235", "count": 208144},
+            {"player_id": "LV", "count": 42024},
+        ],
+    )
+
+    exit_code = main(["--root", str(tmp_path), "sleeper", "trending"])
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Ja'Marr Chase" in out
+    assert "Las Vegas Raiders" in out
+    assert "player_id=" not in out
+    assert "fetch-players" not in out
 
 
 @responses.activate
