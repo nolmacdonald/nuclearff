@@ -22,7 +22,7 @@ from nuclearff.config import default_config, dump_config, load_config
 from nuclearff.config.league import dump_league_config, league_config_from_sleeper
 from nuclearff.config.loader import to_yaml
 from nuclearff.config.models import NuclearffConfig
-from nuclearff.exceptions import NuclearffError
+from nuclearff.exceptions import NuclearffError, StorageError
 from nuclearff.ids import (
     ambiguous_sleeper_ids,
     read_sleeper_players,
@@ -326,15 +326,22 @@ def _cmd_sleeper_user_drafts(args: argparse.Namespace) -> int:
     print(f"User:   {user.get('display_name')} ({user['user_id']})")
     print(f"Drafts: {len(drafts)} for {args.sport} {args.season}")
     for draft in drafts:
+        metadata = draft.get("metadata") or {}
+        league_name = metadata.get("name") or "unknown"
         print(
-            f"  {draft.get('draft_id')}  status={draft.get('status')}  "
-            f"type={draft.get('type')}"
+            f"  {draft.get('draft_id')}  {league_name}  "
+            f"status={draft.get('status')}  type={draft.get('type')}"
         )
     return EXIT_OK
 
 
 def _cmd_sleeper_trending(args: argparse.Namespace) -> int:
-    """Print trending players by adds or drops.
+    """Print trending players by adds or drops, resolved to names when possible.
+
+    Trending only ever returns a bare ``player_id``. Names are resolved
+    against the local ``sleeper_players`` table (written by
+    ``nuclearff sleeper fetch-players``) when it exists; otherwise the raw id
+    is printed with a hint to run that command first, rather than failing.
 
     Args:
         args: Parsed arguments carrying ``kind``, ``lookback_hours``, and
@@ -350,9 +357,35 @@ def _cmd_sleeper_trending(args: argparse.Namespace) -> int:
             kind=args.kind, lookback_hours=args.lookback_hours, limit=args.limit
         )
 
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+    names: dict[str, str] | None
+    try:
+        players = read_sleeper_players(db_path)
+        names = {}
+        for row in players.iter_rows(named=True):
+            # Team defenses carry no full_name in Sleeper's real payload
+            # (confirmed live: "LV" has only first_name="Las Vegas",
+            # last_name="Raiders") -- fall back to combining those.
+            name = row.get("full_name") or " ".join(
+                part for part in (row.get("first_name"), row.get("last_name")) if part
+            )
+            if name:
+                names[row["player_id"]] = name
+    except StorageError:
+        names = None
+
     print(f"Trending {args.kind} (last {args.lookback_hours}h):")
     for entry in trending:
-        print(f"  {entry.get('player_id')!s:>8}  count={entry.get('count')}")
+        player_id = entry.get("player_id")
+        label = names.get(player_id) if names and isinstance(player_id, str) else None
+        label = label or f"player_id={player_id}"
+        print(f"  {label:<28} count={entry.get('count')}")
+
+    if names is None:
+        print(
+            "\n(Player names unresolved -- run `nuclearff sleeper fetch-players` "
+            "first.)"
+        )
     return EXIT_OK
 
 
