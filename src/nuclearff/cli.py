@@ -516,6 +516,57 @@ def _cmd_report_auction_board(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_playoff_bracket(args: argparse.Namespace) -> int:
+    """Render a season's winners/losers playoff bracket as PNG trees.
+
+    Reads ``sleeper_playoff_matches`` and ``sleeper_standings`` (written by
+    ``sleeper fetch-league --standings``) from the local database.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_playoff_brackets
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    matches = (
+        read_table(db_path, "sleeper_playoff_matches")
+        .filter(
+            (pl.col("league_id") == args.league_id) & (pl.col("season") == args.season)
+        )
+        .to_dicts()
+    )
+    if not matches:
+        print(
+            f"No sleeper_playoff_matches rows for league {args.league_id}, season "
+            f"{args.season}. Run `sleeper fetch-league --standings` first."
+        )
+        return EXIT_ERROR
+
+    standings = read_table(db_path, "sleeper_standings").filter(
+        (pl.col("league_id") == args.league_id) & (pl.col("season") == args.season)
+    )
+    names = dict(zip(standings["roster_id"], standings["display_name"], strict=True))
+
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else config.paths.artifacts_dir / f"{args.league_id}-{args.season}" / "brackets"
+    )
+    written = render_playoff_brackets(
+        matches, names, out_dir, league_name=args.league_name or ""
+    )
+
+    for bracket, path in written.items():
+        print(f"{bracket.title()} bracket: {path}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -740,6 +791,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip PNG tables (avoids the plottable/matplotlib dev extra)",
     )
     auction_board.set_defaults(func=_cmd_report_auction_board)
+
+    playoff_bracket = report_commands.add_parser(
+        "playoff-bracket",
+        help="Render a season's winners/losers playoff bracket as PNG trees",
+    )
+    playoff_bracket.add_argument("league_id", help="Sleeper league identifier")
+    playoff_bracket.add_argument(
+        "--season", type=int, required=True, help="Season to render (e.g. 2025)"
+    )
+    playoff_bracket.add_argument(
+        "--league-name", default=None, help="Used in each figure's title"
+    )
+    playoff_bracket.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output directory (default: <artifacts>/<league_id>-<season>/brackets)",
+    )
+    playoff_bracket.set_defaults(func=_cmd_report_playoff_bracket)
 
     return parser
 

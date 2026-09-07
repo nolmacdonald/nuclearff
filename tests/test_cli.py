@@ -715,6 +715,113 @@ def test_sleeper_fetch_players(tmp_path, capsys):
     assert full_name == "Patrick Mahomes"
 
 
+@responses.activate
+def test_report_playoff_bracket_renders_winners_and_losers_pngs(tmp_path, capsys):
+    """playoff-bracket reads the standings/matches tables and writes PNGs."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+    from tests.test_sleeper_standings import LEAGUE_ID as BRACKET_LEAGUE_ID
+    from tests.test_sleeper_standings import LOSERS_BRACKET, ROSTERS, USERS
+    from tests.test_sleeper_standings import WINNERS_BRACKET as BRACKET_WINNERS
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/rosters", json=ROSTERS
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/winners_bracket",
+        json=BRACKET_WINNERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/losers_bracket",
+        json=LOSERS_BRACKET,
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(
+            client, [{"league_id": BRACKET_LEAGUE_ID, "season": 2025}], db_path
+        )
+
+    out_dir = tmp_path / "brackets"
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "playoff-bracket",
+            BRACKET_LEAGUE_ID,
+            "--season",
+            "2025",
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Winners bracket:" in out
+    assert "Losers bracket:" in out
+    assert (out_dir / "winners_bracket.png").is_file()
+    assert (out_dir / "losers_bracket.png").is_file()
+
+
+@responses.activate
+def test_report_playoff_bracket_with_no_matching_data_reports_and_exits(
+    tmp_path, capsys
+):
+    """A league/season with no stored bracket data gets a message, not a traceback."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+    from tests.test_sleeper_standings import LEAGUE_ID as BRACKET_LEAGUE_ID
+    from tests.test_sleeper_standings import LOSERS_BRACKET, ROSTERS, USERS
+    from tests.test_sleeper_standings import WINNERS_BRACKET as BRACKET_WINNERS
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/rosters", json=ROSTERS
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/winners_bracket",
+        json=BRACKET_WINNERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{BRACKET_LEAGUE_ID}/losers_bracket",
+        json=LOSERS_BRACKET,
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(
+            client, [{"league_id": BRACKET_LEAGUE_ID, "season": 2025}], db_path
+        )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "playoff-bracket",
+            BRACKET_LEAGUE_ID,
+            "--season",
+            "2099",
+        ]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "No sleeper_playoff_matches rows" in capsys.readouterr().out
+
+
 def test_ids_resolve_gsis_reports_a_missing_players_table(tmp_path, capsys):
     """resolve-gsis tells the user to run fetch-players first, not a traceback."""
     exit_code = main(["--root", str(tmp_path), "ids", "resolve-gsis"])

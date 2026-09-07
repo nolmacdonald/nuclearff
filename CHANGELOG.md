@@ -111,6 +111,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and resolves to `None` rather than raising. No CLI wiring or DuckDB table
   of its own; pure mapping infrastructure. Verified live against the real
   league: all 10 rosters resolve correctly.
+- `nuclearff report playoff-bracket` (GitHub Issue 22) and
+  `nuclearff.report.bracket`: renders a season's winners and losers playoff
+  brackets from `sleeper_playoff_matches`/`sleeper_standings` (issue #21) as
+  separate horizontal-tree PNGs, labeled with real team display names. A
+  Sleeper bracket is a fixed-shape single-elimination tree keyed by
+  `t1_from`/`t2_from` match references, not a similarity-clustering
+  dendrogram, so `compute_bracket_positions` hand-builds the layout with
+  matplotlib line segments rather than coercing it into
+  `scipy.cluster.hierarchy`'s linkage-matrix format — zero new dependencies,
+  matplotlib is already core. `matplotlib` is imported lazily inside
+  `render_bracket_tree`, the same posture `nuclearff.report.tables` uses.
+  `_nudge_colliding_positions` separates matches that legitimately land on
+  the same computed position (a championship and its 3rd-place game both
+  split from the same pair of semifinal matches) by a margin proportional to
+  their own box height, found and fixed by rendering the real bracket and
+  visually inspecting the output — a fixed nudge smaller than the box height
+  still left the boxes visually overlapping. Verified live against the real
+  league's completed 2025 season: 7 winners-bracket and 4 losers-bracket
+  matches (this issue's acceptance benchmark), later playoff rounds resolve
+  correctly through `t1_from`/`t2_from`, and both figures render with no
+  overlapping labels.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
