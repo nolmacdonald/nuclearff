@@ -276,9 +276,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
     if args.roster_players:
         print(f"\nRoster players: {roster_player_count}")
-        if not (
-            args.history or args.standings or args.matchups or args.transactions
-        ):
+        if not (args.history or args.standings or args.matchups or args.transactions):
             print(f"Database: {db_path}")
 
     return EXIT_OK
