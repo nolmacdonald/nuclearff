@@ -50,6 +50,11 @@ capture. It also reports league settings that are contradictory or that change
 how players should be valued, for example a league whose ``draft_rounds`` field
 disagrees with its draft object, or one that plays the weekly median.
 
+This is the starting point; ``fetch-league`` also has flags for multi-season
+history, standings and playoff results, weekly matchups, transaction history,
+and roster composition — see the :doc:`user_guide` for a complete walkthrough
+of every command.
+
 Data Sources
 ------------
 
@@ -63,7 +68,9 @@ nflverse / nflreadpy
 Sleeper API
    The `Sleeper API <https://docs.sleeper.com>`_ is a read-only, unauthenticated
    HTTP API exposing leagues, rosters, matchups, transactions, and player
-   metadata. Sleeper asks that clients stay under 1000 calls per minute.
+   metadata. Sleeper asks that clients stay under 1000 calls per minute. See
+   the :doc:`sleeper_api_tutorial` for a full walkthrough of fetching this
+   data yourself in Python.
 
 Quick Start
 -----------

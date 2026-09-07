@@ -20,6 +20,19 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
 
       New to nuclearff? Start here for installation and a quick overview.
 
+   .. grid-item-card:: User Guide
+      :link: user_guide
+      :link-type: doc
+
+      Every CLI command, feature by feature: league history, standings,
+      matchups, transactions, roster composition, and more.
+
+   .. grid-item-card:: Sleeper API Tutorial
+      :link: sleeper_api_tutorial
+      :link-type: doc
+
+      What the Sleeper API exposes, and how to fetch it yourself in Python.
+
    .. grid-item-card:: API Reference
       :link: api/index
       :link-type: doc
@@ -31,6 +44,8 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
    :hidden:
 
    getting_started
+   user_guide
+   sleeper_api_tutorial
    api/index
    decisions
    changelog
