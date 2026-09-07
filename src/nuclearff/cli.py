@@ -36,6 +36,7 @@ from nuclearff.sleeper import (
     SleeperClient,
     fetch_and_write_matchups,
     fetch_and_write_standings,
+    fetch_and_write_transactions,
     fetch_league_snapshot,
     walk_league_chain,
     write_league_tables,
@@ -168,7 +169,8 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
     Args:
         args: Parsed arguments carrying ``league_id``, ``history``,
-            ``standings``, ``matchups``, ``max_seasons``, and ``max_week``.
+            ``standings``, ``matchups``, ``transactions``, ``max_seasons``,
+            and ``max_week``.
 
     Returns:
         An exit code.
@@ -179,7 +181,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         snapshot = fetch_league_snapshot(client, args.league_id)
 
-        if args.history or args.standings or args.matchups:
+        if args.history or args.standings or args.matchups or args.transactions:
             leagues = walk_league_chain(
                 client, args.league_id, max_seasons=args.max_seasons
             )
@@ -195,6 +197,11 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
         if args.matchups:
             matchup_count = fetch_and_write_matchups(
+                client, leagues, db_path, max_week=args.max_week
+            )
+
+        if args.transactions:
+            transaction_count, transaction_player_count = fetch_and_write_transactions(
                 client, leagues, db_path, max_week=args.max_week
             )
 
@@ -247,6 +254,12 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     if args.matchups:
         print(f"\nMatchups: {matchup_count} roster-week row(s)")
         if not (args.history or args.standings):
+            print(f"Database: {db_path}")
+
+    if args.transactions:
+        print(f"\nTransactions: {transaction_count}")
+        print(f"Add/drop rows: {transaction_player_count}")
+        if not (args.history or args.standings or args.matchups):
             print(f"Database: {db_path}")
 
     return EXIT_OK
@@ -578,12 +591,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch.add_argument(
+        "--transactions",
+        action="store_true",
+        help=(
+            "Also fetch weekly transactions per season (implies --history) "
+            "and write them to DuckDB"
+        ),
+    )
+    fetch.add_argument(
         "--max-seasons",
         type=int,
         default=DEFAULT_MAX_SEASONS,
         help=(
-            f"Maximum seasons to walk when --history, --standings, or "
-            f"--matchups is set (default: {DEFAULT_MAX_SEASONS})"
+            f"Maximum seasons to walk when --history, --standings, "
+            f"--matchups, or --transactions is set "
+            f"(default: {DEFAULT_MAX_SEASONS})"
         ),
     )
     fetch.add_argument(
@@ -591,8 +613,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_MAX_WEEK,
         help=(
-            f"Maximum week to fetch per season when --matchups is set "
-            f"(default: {DEFAULT_MAX_WEEK})"
+            f"Maximum week to fetch per season when --matchups or "
+            f"--transactions is set (default: {DEFAULT_MAX_WEEK})"
         ),
     )
     fetch.set_defaults(func=_cmd_sleeper_fetch_league)
