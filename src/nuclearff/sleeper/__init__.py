@@ -35,6 +35,7 @@ from nuclearff.sleeper.transactions import (
     transaction_player_rows,
     transaction_rows,
 )
+from nuclearff.sleeper.users import roster_owners
 
 __all__ = [
     "Anomaly",
@@ -54,6 +55,7 @@ __all__ = [
     "player_rows",
     "resolve_final_ranks",
     "roster_display_names",
+    "roster_owners",
     "roster_player_rows",
     "standings_rows",
     "transaction_player_rows",

@@ -101,6 +101,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   populated seasons (2026 pre-draft correctly excluded), and one real
   completed-season roster shows exactly 17 players (9 starters, 6 bench, 2
   reserve) — matching this issue's own acceptance benchmark.
+- `nuclearff.sleeper.users.roster_owners` (GitHub Issue 24): resolves a
+  league's roster ids to their owning user's display name *and* every
+  co-owner's, given `roster.co_owners`. Complements (not a replacement for)
+  `standings.roster_display_names`, which `nuclearff.sleeper.standings` and
+  `nuclearff.sleeper.transactions` already use for the simpler single-owner
+  join — this covers what that doesn't: multi-owner rosters. A `user_id`
+  with no matching entry in `users` (a real data inconsistency) is logged
+  and resolves to `None` rather than raising. No CLI wiring or DuckDB table
+  of its own; pure mapping infrastructure. Verified live against the real
+  league: all 10 rosters resolve correctly.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,
