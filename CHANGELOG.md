@@ -111,6 +111,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and resolves to `None` rather than raising. No CLI wiring or DuckDB table
   of its own; pure mapping infrastructure. Verified live against the real
   league: all 10 rosters resolve correctly.
+- `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
+  CLI command and flag — league capture, multi-season history, standings and
+  playoff results, weekly matchups, transaction history, roster composition,
+  user/draft discovery, player filtering and trending, `gsis_id` resolution,
+  and auction/keeper draft valuation — with real output captured against the
+  project's real league while writing it. `docs/source/sleeper_api_tutorial.rst`
+  updated to match: its player-filtering note was stale (issue #17 landed
+  `position=`/`active=` support after this page was first drafted), and its
+  endpoint table now covers user discovery and the winners/losers brackets.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,

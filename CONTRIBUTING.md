@@ -44,7 +44,7 @@ uv run ruff check .       # lint
 uv run ty check src/      # type check
 ```
 
-Docstrings are NumPy-style, matching the Sphinx `Google-style` configuration in
+Docstrings are Google-style, matching the Sphinx `napoleon` configuration in
 `docs/source/conf.py`.
 
 ## Testing

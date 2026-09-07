@@ -219,3 +219,6 @@ data/
 # checked-in default and is intentionally not matched here.
 /configs/nuclearff.yaml
 configs/leagues/
+
+# nuclearff: downloaded images cached by dev/tables scripts (headshots, team logos)
+dev/tables/_cache/
