@@ -14,6 +14,10 @@ from nuclearff.sleeper.models import (
     SnapshotMetadata,
 )
 from nuclearff.sleeper.players import player_rows, write_players_table
+from nuclearff.sleeper.roster_players import (
+    fetch_and_write_roster_players,
+    roster_player_rows,
+)
 from nuclearff.sleeper.snapshot import (
     detect_anomalies,
     fetch_league_snapshot,
@@ -40,6 +44,7 @@ __all__ = [
     "bracket_match_rows",
     "detect_anomalies",
     "fetch_and_write_matchups",
+    "fetch_and_write_roster_players",
     "fetch_and_write_standings",
     "fetch_and_write_transactions",
     "fetch_league_snapshot",
@@ -49,6 +54,7 @@ __all__ = [
     "player_rows",
     "resolve_final_ranks",
     "roster_display_names",
+    "roster_player_rows",
     "standings_rows",
     "transaction_player_rows",
     "transaction_rows",

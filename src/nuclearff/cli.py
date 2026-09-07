@@ -35,6 +35,7 @@ from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
     fetch_and_write_matchups,
+    fetch_and_write_roster_players,
     fetch_and_write_standings,
     fetch_and_write_transactions,
     fetch_league_snapshot,
@@ -169,8 +170,8 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
 
     Args:
         args: Parsed arguments carrying ``league_id``, ``history``,
-            ``standings``, ``matchups``, ``transactions``, ``max_seasons``,
-            and ``max_week``.
+            ``standings``, ``matchups``, ``transactions``, ``roster_players``,
+            ``max_seasons``, and ``max_week``.
 
     Returns:
         An exit code.
@@ -181,7 +182,13 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         snapshot = fetch_league_snapshot(client, args.league_id)
 
-        if args.history or args.standings or args.matchups or args.transactions:
+        if (
+            args.history
+            or args.standings
+            or args.matchups
+            or args.transactions
+            or args.roster_players
+        ):
             leagues = walk_league_chain(
                 client, args.league_id, max_seasons=args.max_seasons
             )
@@ -203,6 +210,11 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
         if args.transactions:
             transaction_count, transaction_player_count = fetch_and_write_transactions(
                 client, leagues, db_path, max_week=args.max_week
+            )
+
+        if args.roster_players:
+            roster_player_count = fetch_and_write_roster_players(
+                client, leagues, db_path
             )
 
     target = write_snapshot(snapshot, config.paths.raw_dir)
@@ -260,6 +272,13 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
         print(f"\nTransactions: {transaction_count}")
         print(f"Add/drop rows: {transaction_player_count}")
         if not (args.history or args.standings or args.matchups):
+            print(f"Database: {db_path}")
+
+    if args.roster_players:
+        print(f"\nRoster players: {roster_player_count}")
+        if not (
+            args.history or args.standings or args.matchups or args.transactions
+        ):
             print(f"Database: {db_path}")
 
     return EXIT_OK
@@ -599,12 +618,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch.add_argument(
+        "--roster-players",
+        action="store_true",
+        help=(
+            "Also categorize each roster's players by slot "
+            "(starter/reserve/taxi/bench) per season (implies --history) "
+            "and write them to DuckDB"
+        ),
+    )
+    fetch.add_argument(
         "--max-seasons",
         type=int,
         default=DEFAULT_MAX_SEASONS,
         help=(
             f"Maximum seasons to walk when --history, --standings, "
-            f"--matchups, or --transactions is set "
+            f"--matchups, --transactions, or --roster-players is set "
             f"(default: {DEFAULT_MAX_SEASONS})"
         ),
     )

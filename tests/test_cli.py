@@ -464,6 +464,81 @@ def test_sleeper_fetch_league_with_transactions_writes_transactions(
 
 
 @responses.activate
+def test_sleeper_fetch_league_with_roster_players_writes_roster_composition(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    state_payload,
+):
+    """--roster-players walks history (implicitly) and persists roster composition."""
+    import duckdb
+
+    from tests.test_sleeper_leagues import PREVIOUS_LEAGUE_ID
+
+    previous_league_payload = dict(league_payload)
+    previous_league_payload["league_id"] = PREVIOUS_LEAGUE_ID
+    previous_league_payload["season"] = 2025
+    previous_league_payload["previous_league_id"] = None
+
+    populated_rosters = [
+        {
+            "roster_id": 1,
+            "owner_id": "u1",
+            "players": ["100", "200", "300"],
+            "starters": ["100"],
+            "reserve": ["200"],
+            "taxi": None,
+        }
+    ]
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=users_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+    for league_id in (LEAGUE_ID, PREVIOUS_LEAGUE_ID):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/rosters", json=populated_rosters
+        )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-league",
+            "--league-id",
+            LEAGUE_ID,
+            "--roster-players",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Roster players: 6" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        (count,) = conn.execute(
+            "SELECT COUNT(*) FROM sleeper_roster_players"
+        ).fetchone()
+        (slot,) = conn.execute(
+            "SELECT slot FROM sleeper_roster_players WHERE player_id = '200' "
+            f"AND league_id = '{LEAGUE_ID}'"
+        ).fetchone()
+    assert count == 6
+    assert slot == "reserve"
+
+
+@responses.activate
 def test_sleeper_user_leagues_resolves_username_and_lists_leagues(tmp_path, capsys):
     """user-leagues resolves a username to a user id, then lists their leagues."""
     responses.get(

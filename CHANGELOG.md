@@ -90,6 +90,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transactions across 6 seasons (965 waiver, 771 free agent, 22 trade, 1
   commissioner; 1,316 complete, 443 failed), 2,670 add/drop rows, and the
   real trade used as this module's test fixture round-trips exactly.
+- `nuclearff sleeper fetch-league --roster-players` (GitHub Issue 23, implies
+  `--history`) and `nuclearff.sleeper.roster_players`: categorizes every
+  roster's players by slot (`starter`/`reserve`/`taxi`/`bench`) per season,
+  persisted to a `sleeper_roster_players` DuckDB table joinable to
+  `sleeper_players` for name/position without re-parsing JSON. Filters
+  Sleeper's `"0"` empty-starting-slot filler (confirmed against a real
+  pre-draft league) rather than inserting it as a player row. Verified live
+  against the real league's full history: 791 roster-player rows across 5
+  populated seasons (2026 pre-draft correctly excluded), and one real
+  completed-season roster shows exactly 17 players (9 starters, 6 bench, 2
+  reserve) — matching this issue's own acceptance benchmark.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,
