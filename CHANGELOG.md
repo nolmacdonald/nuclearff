@@ -74,6 +74,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transaction wiring (also flagged as dead code by this issue's original
   audit) is intentionally not repeated here — that is
   [issue #20](https://github.com/nolmacdonald/nuclearff/issues/20)'s scope.
+- `nuclearff sleeper fetch-league --transactions` (GitHub Issue 20, implies
+  `--history`) and `nuclearff.sleeper.transactions`: weekly transactions
+  across a league's full history, persisted to DuckDB (`sleeper_transactions`,
+  and a normalized `sleeper_transaction_players` unnesting `adds`/`drops`
+  into one row per player/direction). Sleeper's own `type`/`status` fields
+  are trusted and stored verbatim rather than derived — confirmed live
+  against the real league's full history: `waiver`/`free_agent`/`trade`, and
+  a 4th type not seen in the single-season sample originally checked,
+  `commissioner`. `created`/`status_updated` (epoch milliseconds) are parsed
+  to UTC timestamps. `creator`/`roster_ids`/`consenter_ids` are resolved to
+  display names alongside the raw ids, reusing
+  `nuclearff.sleeper.standings.roster_display_names` rather than
+  re-implementing that join. Verified live against the real league: 1,759
+  transactions across 6 seasons (965 waiver, 771 free agent, 22 trade, 1
+  commissioner; 1,316 complete, 443 failed), 2,670 add/drop rows, and the
+  real trade used as this module's test fixture round-trips exactly.
 - `nuclearff ids resolve-gsis` (`ff_revised.md` Issue 7), which fills Sleeper
   players missing a `gsis_id` from nflverse's `ff_playerids` crosswalk,
   skips crosswalk rows whose `sleeper_id` is ambiguous rather than guessing,

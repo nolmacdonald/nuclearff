@@ -376,6 +376,94 @@ def test_sleeper_fetch_league_with_matchups_writes_matchups(
 
 
 @responses.activate
+def test_sleeper_fetch_league_with_transactions_writes_transactions(
+    tmp_path,
+    capsys,
+    league_payload,
+    draft_payload,
+    users_payload,
+    rosters_payload,
+    state_payload,
+):
+    """--transactions walks history (implicitly) and persists weekly transactions."""
+    import duckdb
+
+    from tests.test_sleeper_leagues import PREVIOUS_LEAGUE_ID
+
+    previous_league_payload = dict(league_payload)
+    previous_league_payload["league_id"] = PREVIOUS_LEAGUE_ID
+    previous_league_payload["season"] = 2025
+    previous_league_payload["previous_league_id"] = None
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=users_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=rosters_payload
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[draft_payload])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=draft_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/traded_picks", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json=state_payload)
+    for league_id in (LEAGUE_ID, PREVIOUS_LEAGUE_ID):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/users", json=users_payload
+        )
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/rosters", json=rosters_payload
+        )
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{league_id}/transactions/1",
+            json=[
+                {
+                    "status": "complete",
+                    "type": "waiver",
+                    "metadata": None,
+                    "created": 1757473191611,
+                    "settings": {},
+                    "creator": rosters_payload[0]["owner_id"],
+                    "transaction_id": f"tx-{league_id}",
+                    "adds": {"12490": rosters_payload[0]["roster_id"]},
+                    "consenter_ids": [rosters_payload[0]["roster_id"]],
+                    "drops": None,
+                    "roster_ids": [rosters_payload[0]["roster_id"]],
+                    "status_updated": 1757488445297,
+                    "waiver_budget": [],
+                }
+            ],
+        )
+        responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/transactions/2", json=[])
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-league",
+            "--league-id",
+            LEAGUE_ID,
+            "--transactions",
+            "--max-week",
+            "2",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Transactions: 2" in out
+    assert "Add/drop rows: 2" in out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        (count,) = conn.execute("SELECT COUNT(*) FROM sleeper_transactions").fetchone()
+    assert count == 2
+
+
+@responses.activate
 def test_sleeper_user_leagues_resolves_username_and_lists_leagues(tmp_path, capsys):
     """user-leagues resolves a username to a user id, then lists their leagues."""
     responses.get(
