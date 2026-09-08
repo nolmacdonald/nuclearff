@@ -43,12 +43,16 @@ Used by :func:`write_league_tables`.
 DEFAULT_MAX_SEASONS = 20
 """Default cap on chain length, guarding against an unexpectedly long walk."""
 
-_LEAGUE_TYPE_NAMES = {0: "redraft", 1: "keeper", 2: "dynasty"}
+_LEAGUE_TYPE_NAMES = {0: "redraft", 1: "keeper", 2: "dynasty", 3: "chopped"}
 """Sleeper's numeric ``settings.type`` mapped to a readable label.
 
 An unrecognized value falls back to ``"unknown"`` rather than raising —
 Sleeper's own docs only document 0/1/2, but nothing guarantees that stays
-exhaustive.
+exhaustive. ``3`` ("Chopped": lowest scorer eliminated weekly, no playoff
+bracket) was confirmed live against a real league
+(``1262207133378695168``) while investigating GitHub Issue 34 — see
+:mod:`nuclearff.sleeper.standings` for how that league type's final
+standing is derived without a bracket.
 """
 
 _LEAGUE_COLUMNS = (

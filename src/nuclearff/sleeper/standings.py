@@ -19,6 +19,18 @@ does not use it: a roster whose final bracket appearance was in the losers
 bracket gets a ``NULL`` ``final_rank``, not a wrong number. The raw losers-
 bracket ``placement`` value is still captured verbatim in
 ``sleeper_playoff_matches`` for anyone who wants to interpret it themselves.
+
+**Chopped-format leagues have no bracket at all.** Sleeper's "Chopped"
+league type (lowest scorer eliminated weekly until one remains) returns
+``null``, not ``[]``, from both bracket endpoints — confirmed live against a
+real completed league (``1262207133378695168``). For that league type, the
+final standing instead lives on each roster: ``roster.settings.eliminated``
+is the leg (week) number it was chopped, absent for the eventual winner.
+:func:`resolve_chopped_final_ranks` derives ``final_rank`` from that field,
+used by :func:`standings_rows` only when the winners bracket produced no
+ranks *and* :func:`is_chopped_league` confirms the league type — a normal
+league with a genuinely empty bracket (e.g. a season still in progress)
+keeps its ``NULL`` ``final_rank`` rather than being misdetected.
 """
 
 from __future__ import annotations
@@ -194,12 +206,79 @@ def resolve_final_ranks(winners_bracket: list[dict[str, Any]]) -> dict[int, int]
     return ranks
 
 
+def is_chopped_league(league: dict[str, Any]) -> bool:
+    """Detect Sleeper's "Chopped" league type (no playoff bracket).
+
+    Confirmed live against a real completed league (``1262207133378695168``):
+    ``settings.type == 3`` and ``settings.last_chopped_leg`` present, both
+    absent on a normal league (this project's real redraft league has
+    ``settings.type == 0`` and no ``last_chopped_leg`` key at all). Requires
+    both signals together, not ``type`` alone — Sleeper's numeric ``type``
+    values beyond 0/1/2 aren't officially documented, so ``last_chopped_leg``
+    (a key that is itself Chopped-specific) is the corroborating signal.
+
+    Args:
+        league: A raw league payload, as returned by
+            :meth:`SleeperClient.get_league`.
+
+    Returns:
+        Whether ``league`` looks like a Chopped-format league.
+    """
+    settings = league.get("settings")
+    if not isinstance(settings, dict):
+        return False
+    return settings.get("type") == 3 and "last_chopped_leg" in settings
+
+
+def resolve_chopped_final_ranks(rosters: list[dict[str, Any]]) -> dict[int, int]:
+    """Resolve final placement for a Chopped league from its elimination order.
+
+    A Chopped league has no bracket to read a placement from (see the module
+    docstring) — the real final standing lives on each roster instead.
+    Confirmed against all 16 rosters of the real league
+    (``1262207133378695168``): ``roster.settings.eliminated`` runs leg 1
+    through leg 15 with no gaps or repeats, and the one roster with no
+    ``eliminated`` value is the winner (independently confirmed by that
+    league's ``metadata.latest_league_winner_roster_id``).
+
+    Args:
+        rosters: Raw roster objects, as returned by
+            :meth:`SleeperClient.get_rosters`.
+
+    Returns:
+        ``roster_id`` mapped to final rank (1 = winner), for every roster
+        with an integer ``roster_id``. Rosters that tie on the same
+        ``eliminated`` leg (not seen in real data, but not documented as
+        impossible either) tie-break by ``roster_id`` — the same
+        approximate-tiebreak posture :func:`standings_rows` already takes for
+        ``regular_season_rank``.
+    """
+    candidates: list[tuple[int, int | None]] = []
+    for roster in rosters:
+        roster_id = roster.get("roster_id")
+        if not isinstance(roster_id, int):
+            continue
+        settings = roster.get("settings")
+        eliminated = settings.get("eliminated") if isinstance(settings, dict) else None
+        candidates.append(
+            (roster_id, eliminated if isinstance(eliminated, int) else None)
+        )
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (item[1] is not None, -(item[1] or 0), item[0]),
+    )
+    return {roster_id: rank for rank, (roster_id, _) in enumerate(ranked, start=1)}
+
+
 def standings_rows(
     league_id: str,
     season: int | None,
     rosters: list[dict[str, Any]],
     users: list[dict[str, Any]],
     winners_bracket: list[dict[str, Any]],
+    *,
+    league: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Build :data:`STANDINGS_TABLE_NAME` rows for one season.
 
@@ -209,6 +288,11 @@ def standings_rows(
         rosters: Raw roster objects.
         users: Raw user objects.
         winners_bracket: Raw winners-bracket match objects.
+        league: The raw league payload, if available. Used only to detect a
+            Chopped-format league (:func:`is_chopped_league`) as a fallback
+            when ``winners_bracket`` yields no ranks — omit it (or pass
+            ``None``) and a Chopped season's ``final_rank`` stays ``NULL``,
+            same as any other bracket-less season.
 
     Returns:
         One row per roster, ``regular_season_rank`` assigned by wins then
@@ -218,6 +302,8 @@ def standings_rows(
     """
     names = roster_display_names(rosters, users)
     final_ranks = resolve_final_ranks(winners_bracket)
+    if not final_ranks and league is not None and is_chopped_league(league):
+        final_ranks = resolve_chopped_final_ranks(rosters)
 
     rows: list[dict[str, Any]] = []
     for roster in rosters:
@@ -320,13 +406,23 @@ def fetch_and_write_standings(
         A ``(standings_rows_written, match_rows_written)`` tuple.
     """
 
-    def _optional(league_id: str, label: str, fetch: Any, default: Any) -> Any:
+    def _optional(
+        league_id: str, label: str, fetch: Any, default: Any, *, quiet: bool = False
+    ) -> Any:
         try:
             return fetch()
         except SleeperAPIError as exc:
-            logger.warning(
-                "Could not fetch %s for league %s: %s", label, league_id, exc
-            )
+            if quiet:
+                logger.debug(
+                    "No %s for league %s (Chopped-format league, expected): %s",
+                    label,
+                    league_id,
+                    exc,
+                )
+            else:
+                logger.warning(
+                    "Could not fetch %s for league %s: %s", label, league_id, exc
+                )
             return default
 
     standings: list[dict[str, Any]] = []
@@ -335,6 +431,7 @@ def fetch_and_write_standings(
     for league in leagues:
         league_id = str(league["league_id"])
         season = int(league["season"]) if league.get("season") else None
+        chopped = is_chopped_league(league)
 
         rosters = _optional(
             league_id, "rosters", lambda lid=league_id: client.get_rosters(lid), []
@@ -347,16 +444,20 @@ def fetch_and_write_standings(
             "winners_bracket",
             lambda lid=league_id: client.get_winners_bracket(lid),
             [],
+            quiet=chopped,
         )
         losers_bracket = _optional(
             league_id,
             "losers_bracket",
             lambda lid=league_id: client.get_losers_bracket(lid),
             [],
+            quiet=chopped,
         )
 
         standings.extend(
-            standings_rows(league_id, season, rosters, users, winners_bracket)
+            standings_rows(
+                league_id, season, rosters, users, winners_bracket, league=league
+            )
         )
         matches.extend(
             bracket_match_rows(league_id, season, "winners", winners_bracket)

@@ -18,6 +18,8 @@ from nuclearff.sleeper.standings import (
     STANDINGS_TABLE_NAME,
     bracket_match_rows,
     fetch_and_write_standings,
+    is_chopped_league,
+    resolve_chopped_final_ranks,
     resolve_final_ranks,
     roster_display_names,
     standings_rows,
@@ -109,6 +111,52 @@ LOSERS_BRACKET = [
     {"m": 1, "p": 1, "r": 1, "t1": 5, "t2": 6, "w": 5, "l": 6},
 ]
 
+# A real completed Sleeper "Chopped" league (16 teams, lowest scorer
+# eliminated weekly, no playoff bracket) -- 1262207133378695168, captured
+# live while investigating GitHub Issue 34. `winners_bracket`/`losers_bracket`
+# return `null` for this league type, not `[]`; the real final standing lives
+# on `roster.settings.eliminated` instead (the leg/week a roster was
+# chopped, absent for the eventual winner).
+CHOPPED_LEAGUE_ID = "1262207133378695168"
+
+CHOPPED_LEAGUE = {
+    "league_id": CHOPPED_LEAGUE_ID,
+    "season": 2025,
+    "settings": {"type": 3, "last_chopped_leg": 15, "num_teams": 16},
+}
+
+_CHOPPED_ELIMINATIONS = {
+    14: None,  # never eliminated -- the real league's actual winner
+    2: 15,
+    13: 14,
+    15: 13,
+    7: 12,
+    12: 11,
+    9: 10,
+    6: 9,
+    8: 8,
+    5: 7,
+    16: 6,
+    1: 5,
+    4: 4,
+    3: 3,
+    10: 2,
+    11: 1,
+}
+
+CHOPPED_ROSTERS = [
+    {
+        "roster_id": roster_id,
+        "owner_id": f"u{roster_id}",
+        "settings": (
+            {"wins": 0, "losses": 0, "ties": 0}
+            if eliminated is None
+            else {"wins": 0, "losses": 0, "ties": 0, "eliminated": eliminated}
+        ),
+    }
+    for roster_id, eliminated in _CHOPPED_ELIMINATIONS.items()
+]
+
 
 @pytest.fixture
 def client(tmp_path):
@@ -164,6 +212,37 @@ def test_resolve_final_ranks_does_not_use_the_losers_bracket():
     assert ranks == {}
 
 
+# --- is_chopped_league / resolve_chopped_final_ranks ------------------------
+
+
+def test_is_chopped_league_detects_the_real_chopped_league():
+    assert is_chopped_league(CHOPPED_LEAGUE) is True
+
+
+def test_is_chopped_league_false_for_a_normal_league():
+    assert is_chopped_league({"settings": {"type": 0}}) is False
+
+
+def test_is_chopped_league_requires_both_signals():
+    """type == 3 alone, with no last_chopped_leg, is not enough to be sure."""
+    assert is_chopped_league({"settings": {"type": 3}}) is False
+
+
+def test_is_chopped_league_handles_missing_or_malformed_settings():
+    assert is_chopped_league({}) is False
+    assert is_chopped_league({"settings": None}) is False
+
+
+def test_resolve_chopped_final_ranks_orders_by_elimination_leg():
+    """Confirmed against all 16 rosters of the real league: no gaps or repeats."""
+    ranks = resolve_chopped_final_ranks(CHOPPED_ROSTERS)
+
+    assert ranks[14] == 1  # never eliminated -- the real winner
+    assert ranks[2] == 2  # eliminated leg 15, chopped last (runner-up)
+    assert ranks[11] == 16  # eliminated leg 1, chopped first
+    assert sorted(ranks.values()) == list(range(1, 17))
+
+
 # --- standings_rows ----------------------------------------------------
 
 
@@ -201,6 +280,48 @@ def test_standings_rows_display_name_and_league_fields():
     assert rows[1]["display_name"] == "Alice"
     assert rows[1]["league_id"] == LEAGUE_ID
     assert rows[1]["season"] == 2025
+
+
+def test_standings_rows_falls_back_to_chopped_ranks_when_the_bracket_is_empty():
+    """A Chopped league's empty winners_bracket falls back to `eliminated`."""
+    rows = {
+        row["roster_id"]: row
+        for row in standings_rows(
+            CHOPPED_LEAGUE_ID,
+            2025,
+            CHOPPED_ROSTERS,
+            [],
+            [],
+            league=CHOPPED_LEAGUE,
+        )
+    }
+
+    assert rows[14]["final_rank"] == 1
+    assert rows[2]["final_rank"] == 2
+    assert rows[11]["final_rank"] == 16
+
+
+def test_standings_rows_does_not_misapply_the_chopped_fallback_to_a_normal_league():
+    """A normal league's genuinely empty bracket (season in progress) stays NULL."""
+    normal_league = {"league_id": LEAGUE_ID, "season": 2025, "settings": {"type": 0}}
+    rows = {
+        row["roster_id"]: row
+        for row in standings_rows(
+            LEAGUE_ID, 2025, ROSTERS, USERS, [], league=normal_league
+        )
+    }
+
+    assert all(row["final_rank"] is None for row in rows.values())
+
+
+def test_standings_rows_without_a_league_argument_never_applies_the_fallback():
+    """Omitting `league` keeps `final_rank` NULL even for a Chopped season."""
+    rows = {
+        row["roster_id"]: row
+        for row in standings_rows(CHOPPED_LEAGUE_ID, 2025, CHOPPED_ROSTERS, [], [])
+    }
+
+    assert all(row["final_rank"] is None for row in rows.values())
 
 
 # --- bracket_match_rows ---------------------------------------------------
@@ -265,6 +386,40 @@ def test_fetch_and_write_standings_round_trips_through_duckdb(client, tmp_path):
 
     assert final_rank == 1
     assert bracket_count == len(WINNERS_BRACKET) + len(LOSERS_BRACKET)
+
+
+@responses.activate
+def test_fetch_and_write_standings_handles_a_chopped_league(client, tmp_path, caplog):
+    """A Chopped league's null bracket response quietly yields a real final_rank."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{CHOPPED_LEAGUE_ID}/rosters", json=CHOPPED_ROSTERS
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{CHOPPED_LEAGUE_ID}/users", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{CHOPPED_LEAGUE_ID}/winners_bracket", json=None
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{CHOPPED_LEAGUE_ID}/losers_bracket", json=None
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    with caplog.at_level("WARNING", logger="nuclearff.sleeper.standings"):
+        standings_count, matches_count = fetch_and_write_standings(
+            client, [CHOPPED_LEAGUE], db_path
+        )
+
+    assert standings_count == 16
+    assert matches_count == 0
+    assert not caplog.records  # no misleading "could not fetch" warning
+
+    with duckdb.connect(str(db_path)) as conn:
+        ranks = dict(
+            conn.execute(
+                f"SELECT roster_id, final_rank FROM {STANDINGS_TABLE_NAME}"
+            ).fetchall()
+        )
+    assert ranks[14] == 1
+    assert ranks[11] == 16
 
 
 @responses.activate
