@@ -137,6 +137,43 @@ because its numbering convention couldn't be confirmed against real data.
 Rosters that only reached the losers bracket show ``final_rank = NULL``
 rather than a number that might be wrong.
 
+Playoff bracket visualization
+----------------------------------
+
+``report playoff-bracket`` renders a completed season's winners and losers
+playoff brackets as horizontal tree PNGs, from the ``sleeper_playoff_matches``
+and ``sleeper_standings`` data ``--standings`` writes above:
+
+.. code-block:: text
+
+   $ nuclearff --root ./demo report playoff-bracket 1240509989819273216 \
+       --season 2025 --league-name "NUCLEARFF REDRAFT"
+   Winners bracket: ./demo/data/artifacts/1240509989819273216-2025/brackets/winners_bracket.png
+   Losers bracket: ./demo/data/artifacts/1240509989819273216-2025/brackets/losers_bracket.png
+
+That's this league's real, completed 2025 season: 7 winners-bracket matches
+and 4 losers-bracket matches, each rendered as its own figure (Sleeper treats
+the two brackets as visually distinct, and so does this). Each leaf/node is
+labeled with the real team display name, not a bare roster id; the winner of
+each match renders bold; and a match carrying a placement (the championship,
+the third-place game, and similar) appends the resulting rank, e.g.
+``nolmacdonald (1st)``.
+
+A Sleeper bracket isn't a similarity-clustering dendrogram — it's a
+fixed-shape single-elimination tree keyed by ``t1_from``/``t2_from`` match
+references, so a later round's participant resolves through an earlier
+match's *winner or loser* rather than a fresh pair of roster ids. That
+includes a real wrinkle this league's own bracket has: the championship and
+the third-place game split from the exact same pair of semifinal matches,
+landing on the same computed tree position — handled by nudging the two
+apart by their own box height so neither the lines nor the labels overlap.
+
+``league_id``/``--season`` select the data (required — run ``--standings``
+for that league and season first if this comes back with no matches).
+``--league-name`` is cosmetic, used only in each figure's title.
+``--out-dir`` overrides the default output location,
+``<artifacts>/<league_id>-<season>/brackets/``.
+
 Weekly matchups
 ------------------
 
