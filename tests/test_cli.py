@@ -1003,3 +1003,164 @@ def test_report_draft_board_reports_no_picks_made_yet(tmp_path, capsys):
 
     assert exit_code == EXIT_ERROR
     assert "No picks made yet" in capsys.readouterr().out
+
+
+# --- report trades -----------------------------------------------------
+
+_TRADES_LEAGUE_ID = "1240509989819273216"
+
+_TRADES_ROSTERS = [
+    {"roster_id": 3, "owner_id": "u3"},
+    {"roster_id": 5, "owner_id": "u5"},
+    {"roster_id": 6, "owner_id": "u6"},
+]
+
+_TRADES_USERS = [
+    {"user_id": "u3", "display_name": "nolmacdonald"},
+    {"user_id": "u5", "display_name": "hyoga10"},
+    {"user_id": "u6", "display_name": "Donkeysride"},
+]
+
+_REAL_TRADE = {
+    "status": "complete",
+    "type": "trade",
+    "metadata": None,
+    "created": 1762303727750,
+    "settings": {"expires_at": 1762476527},
+    "leg": 9,
+    "draft_picks": [],
+    "creator": "u3",
+    "transaction_id": "1291599084301348864",
+    "adds": {"7525": 6, "7526": 6, "9509": 3},
+    "consenter_ids": [3, 6],
+    "drops": {"7525": 3, "7526": 3, "9509": 6},
+    "roster_ids": [3, 6],
+    "status_updated": 1762457470827,
+    "waiver_budget": [],
+}
+
+
+def _mock_trades_endpoints():
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/rosters",
+        json=_TRADES_ROSTERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/users", json=_TRADES_USERS
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/winners_bracket", json=[]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/losers_bracket", json=[]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/transactions/1",
+        json=[_REAL_TRADE],
+    )
+    for week in range(2, 19):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/transactions/{week}",
+            json=[],
+        )
+
+
+@responses.activate
+def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
+    tmp_path, capsys
+):
+    """hyoga10 never traded but must still appear via the sleeper_standings join."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+    from nuclearff.sleeper.transactions import fetch_and_write_transactions
+
+    _mock_trades_endpoints()
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [{"league_id": _TRADES_LEAGUE_ID, "season": 2025}]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_transactions(client, leagues, db_path)
+
+    out_dir = tmp_path / "trades"
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "trades",
+            _TRADES_LEAGUE_ID,
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Managers:          3" in out
+    assert (out_dir / "trades_by_manager.png").is_file()
+
+
+@responses.activate
+def test_report_trades_falls_back_without_standings_table(tmp_path, capsys):
+    """No sleeper_standings yet -- still renders, using only trading managers."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.transactions import fetch_and_write_transactions
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/rosters",
+        json=_TRADES_ROSTERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/users", json=_TRADES_USERS
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/transactions/1",
+        json=[_REAL_TRADE],
+    )
+    for week in range(2, 19):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{_TRADES_LEAGUE_ID}/transactions/{week}",
+            json=[],
+        )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_transactions(
+            client, [{"league_id": _TRADES_LEAGUE_ID, "season": 2025}], db_path
+        )
+
+    out_dir = tmp_path / "trades"
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "trades",
+            _TRADES_LEAGUE_ID,
+            "--out-dir",
+            str(out_dir),
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Managers:          2" in capsys.readouterr().out  # only the 2 traders
+    assert (out_dir / "trades_by_manager.png").is_file()
+
+
+def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):
+    """No sleeper_transactions at all is reported, not a traceback."""
+    exit_code = main(["--root", str(tmp_path), "report", "trades", _TRADES_LEAGUE_ID])
+
+    assert exit_code == EXIT_ERROR
+    assert "No sleeper_transactions table found" in capsys.readouterr().out
