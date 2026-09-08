@@ -1,11 +1,12 @@
-"""Unit tests for nuclearff.report: CSV, markdown, and table selection.
+"""Unit tests for nuclearff.report: CSV, markdown, table selection, and rendering.
 
-PNG rendering is deliberately not exercised here — it needs the `dev` extra
-(plottable/matplotlib) and downloads headshots over the network, which
-`tests/conftest.py`'s autouse `_no_network` fixture forbids. `write_report`
-is therefore called with `render_tables=False`; the rendering path's own
-guard rails (the `RenderingUnavailableError` type, the Agg backend) are
-covered by the fact that it is skipped cleanly.
+Most tests here call `write_report` with `render_tables=False`, since only
+the CSV/markdown assembly is under test. One test (`render_tables=True`)
+exercises the full rendering path with a board where no player has a
+`headshot_url`, avoiding any real HTTP call while still covering
+`write_report`'s render/link-in wiring; `render_position_table` itself
+(HTTP-mocked headshot fetch, the missing-headshot placeholder, the `dev`
+extra needed at all) is covered in `test_report_tables.py`.
 """
 
 from __future__ import annotations
@@ -128,3 +129,17 @@ def test_report_skips_png_links_when_not_rendering(tmp_path):
     text = report.read_text(encoding="utf-8")
 
     assert ".png" not in text
+
+
+def test_write_report_renders_tables_and_links_them(tmp_path):
+    """`render_tables=True` end-to-end: every player here has no headshot_url,
+    which exercises `render_position_table`'s missing-headshot placeholder
+    path (see `test_report_tables.py`) without needing a mocked HTTP call.
+    """
+    report = write_report(_board(), _context(), tmp_path, render_tables=True)
+    text = report.read_text(encoding="utf-8")
+
+    assert (tmp_path / "tables").is_dir()
+    assert ".png" in text
+    for position in ("QB", "RB", "WR", "TE"):
+        assert (tmp_path / "tables" / f"top_12_{position.lower()}.png").is_file()

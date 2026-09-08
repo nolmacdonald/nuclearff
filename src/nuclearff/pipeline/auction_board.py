@@ -295,7 +295,7 @@ def build_auction_board(
     valued = valued.filter(pl.col("vorp").is_not_null())
 
     priced = auction_values(
-        valued.rename({"player_id": "player_id"}),
+        valued,
         teams=cfg.num_teams,
         budget_per_team=budget,
         roster_spots=roster_spots,
