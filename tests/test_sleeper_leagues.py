@@ -170,7 +170,7 @@ def test_league_rows_flattens_the_real_fixture(league_payload):
 
 @pytest.mark.parametrize(
     ("type_code", "name"),
-    [(0, "redraft"), (1, "keeper"), (2, "dynasty"), (99, "unknown")],
+    [(0, "redraft"), (1, "keeper"), (2, "dynasty"), (3, "chopped"), (99, "unknown")],
 )
 def test_league_rows_maps_league_type_names(type_code, name):
     """Sleeper's numeric league type becomes a readable label."""

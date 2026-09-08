@@ -132,6 +132,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matches (this issue's acceptance benchmark), later playoff rounds resolve
   correctly through `t1_from`/`t2_from`, and both figures render with no
   overlapping labels.
+- Chopped-format league support in `nuclearff.sleeper.standings` (GitHub
+  Issue 34): Sleeper's "Chopped" league type (16 teams, lowest scorer
+  eliminated weekly, no playoff bracket) returns `null`, not `[]`, from both
+  `winners_bracket`/`losers_bracket` — confirmed live against a real
+  completed league (`1262207133378695168`). `is_chopped_league` detects the
+  type from `settings.type == 3` and the presence of `settings.last_chopped_leg`
+  together (not `type` alone, since Sleeper's numeric type values beyond
+  0/1/2 aren't officially documented). `resolve_chopped_final_ranks` derives
+  `final_rank` from `roster.settings.eliminated` (the leg a roster was
+  chopped, absent for the winner) as a fallback in `standings_rows` — used
+  only when the winners bracket produced no ranks and the league is
+  confirmed Chopped-format, so a normal league's genuinely empty bracket
+  (season in progress) still correctly gets `NULL`. `fetch_and_write_standings`
+  also stops logging a misleading "could not fetch winners_bracket" warning
+  for this expected-null case. `_LEAGUE_TYPE_NAMES` (`nuclearff.sleeper.leagues`)
+  now maps `3` to `"chopped"` instead of `"unknown"`. Verified live against
+  the real Chopped league: all 16 rosters get the correct `final_rank`,
+  matching the real elimination order exactly (leg 1 chopped -> rank 16,
+  never chopped -> rank 1, independently confirmed by
+  `league.metadata.latest_league_winner_roster_id`). No bracket
+  visualization for this league type — that's not this issue's scope; a
+  Chopped league's elimination order isn't a pairwise match tree, so
+  `nuclearff.report.bracket` (issue #22) doesn't apply.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
