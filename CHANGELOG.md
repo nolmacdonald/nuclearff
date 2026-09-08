@@ -155,6 +155,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   visualization for this league type — that's not this issue's scope; a
   Chopped league's elimination order isn't a pairwise match tree, so
   `nuclearff.report.bracket` (issue #22) doesn't apply.
+- `nuclearff report draft-board` (GitHub Issue 36) and `nuclearff.sleeper.draft`/
+  `nuclearff.report.draft_board`: renders a draft as Sleeper's own snake-order
+  grid of position-colored pick cards (one column per draft slot, one row per
+  round). `SleeperClient.get_draft_picks` was already fetched by
+  `fetch_league_snapshot` but never made queryable — `draft_pick_rows`/
+  `fetch_and_write_draft_picks` close that gap with a new `sleeper_draft_picks`
+  table. The grid's column for a pick is that pick's own real `draft_slot`,
+  not a computed alternation — a league's `settings.reversal_round` can make
+  a later round continue the same direction as the round before it instead of
+  reversing, and Sleeper already resolves that into each pick's `draft_slot`,
+  confirmed live against this project's real, currently in-progress 2026
+  draft (`reversal_round: 3`; round 3 continues round 2's direction rather
+  than reversing back to round 1's). Cell color is confirmed for RB/WR/QB/TE
+  against a real screenshot of Sleeper's own draft-room UI; any other
+  position falls back to a neutral, explicitly-unconfirmed color rather than
+  guessing. Found and fixed a real overflow bug by rendering the real draft
+  and looking at the PNG: a long combined "First Last" name (e.g. "Rhamondre
+  Stevenson") ran past its cell into the next column — fixed by splitting
+  first/last name onto two lines (matching the reference screenshot's own
+  layout), which also fits each name part comfortably on its own. Verified
+  live against the real draft: 100+ real picks render correctly across 10
+  columns and 11+ rounds, all four confirmed position colors present, no
+  cell text overlapping a neighbor.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

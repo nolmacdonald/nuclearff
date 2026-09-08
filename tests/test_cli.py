@@ -865,3 +865,141 @@ def test_ids_resolve_gsis_fills_gaps_and_reports_counts(tmp_path, capsys, monkey
     assert "gsis_id from Sleeper:      1" in out
     assert "gsis_id from ff_playerids: 1" in out
     assert "Still unresolved:          1" in out
+
+
+# --- report draft-board -----------------------------------------------
+
+_DRAFT_BOARD_DRAFT = {
+    "draft_id": DRAFT_ID,
+    "league_id": LEAGUE_ID,
+    "season": "2026",
+    "type": "snake",
+    "metadata": {"name": "NUCLEARFF REDRAFT"},
+    "draft_order": {"u1": 1, "u2": 2},
+    "settings": {"teams": 2, "rounds": 1, "reversal_round": 3},
+}
+
+_DRAFT_BOARD_USERS = [
+    {"user_id": "u1", "display_name": "Alice"},
+    {"user_id": "u2", "display_name": "Bob"},
+]
+
+_DRAFT_BOARD_PICKS = [
+    {
+        "draft_id": DRAFT_ID,
+        "pick_no": 1,
+        "round": 1,
+        "draft_slot": 1,
+        "roster_id": 1,
+        "picked_by": "u1",
+        "player_id": "9221",
+        "is_keeper": None,
+        "metadata": {
+            "position": "RB",
+            "first_name": "Jahmyr",
+            "last_name": "Gibbs",
+            "team": "DET",
+        },
+    },
+    {
+        "draft_id": DRAFT_ID,
+        "pick_no": 2,
+        "round": 1,
+        "draft_slot": 2,
+        "roster_id": 2,
+        "picked_by": "u2",
+        "player_id": "9509",
+        "is_keeper": None,
+        "metadata": {
+            "position": "RB",
+            "first_name": "Bijan",
+            "last_name": "Robinson",
+            "team": "ATL",
+        },
+    },
+]
+
+
+@responses.activate
+def test_report_draft_board_renders_a_png_for_an_explicit_draft_id(tmp_path, capsys):
+    """--draft-id renders that draft directly, no league-drafts lookup needed."""
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=_DRAFT_BOARD_DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=_DRAFT_BOARD_PICKS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=_DRAFT_BOARD_USERS
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "draft-board",
+            LEAGUE_ID,
+            "--draft-id",
+            DRAFT_ID,
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "Picks:       2" in out
+
+    out_path = (
+        tmp_path / "data" / "artifacts" / f"{LEAGUE_ID}-draft-board" / f"{DRAFT_ID}.png"
+    )
+    assert out_path.is_file()
+    assert str(out_path) in out
+
+
+@responses.activate
+def test_report_draft_board_resolves_the_current_draft_when_omitted(tmp_path, capsys):
+    """No --draft-id -> resolved from the league's most recent draft."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[_DRAFT_BOARD_DRAFT]
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=_DRAFT_BOARD_DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=_DRAFT_BOARD_PICKS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=_DRAFT_BOARD_USERS
+    )
+
+    exit_code = main(["--root", str(tmp_path), "report", "draft-board", LEAGUE_ID])
+
+    assert exit_code == EXIT_OK
+    assert "Picks:       2" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_draft_board_reports_no_drafts_for_the_league(tmp_path, capsys):
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[])
+
+    exit_code = main(["--root", str(tmp_path), "report", "draft-board", LEAGUE_ID])
+
+    assert exit_code == EXIT_ERROR
+    assert "No drafts found" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_draft_board_reports_no_picks_made_yet(tmp_path, capsys):
+    """A draft that exists but has no picks yet is reported, not a traceback."""
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=_DRAFT_BOARD_DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=_DRAFT_BOARD_USERS
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "draft-board",
+            LEAGUE_ID,
+            "--draft-id",
+            DRAFT_ID,
+        ]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "No picks made yet" in capsys.readouterr().out
