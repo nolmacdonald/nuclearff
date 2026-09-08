@@ -411,6 +411,45 @@ Keeper cost adjustment (``keeper_inflation_multiplier``,
 command — Sleeper exposes no keeper-price endpoint, so keeper costs must be
 supplied by the caller.
 
+Draft board visualization
+------------------------------
+
+``report draft-board`` renders a draft as a snake-order grid of
+position-colored pick cards — matching Sleeper's own draft-room UI: one
+column per draft slot (team), one row per round.
+
+.. code-block:: text
+
+   $ nuclearff --root ./demo report draft-board 1367225133634191360
+   Picks:       150
+   Draft board: ./demo/data/artifacts/1367225133634191360-draft-board/1367225133646778368.png
+
+That's this league's real, currently in-progress 2026 draft: 150 real picks
+rendered so far, across 10 columns and 15 rounds. Each cell shows the pick's
+position and NFL team, the pick number (e.g. ``3.10`` — round 3, draft slot
+10), and the player's name on two lines (first name, then bold last name).
+Cell color follows position: green for RB, blue for WR, pink for QB, orange
+for TE — confirmed against Sleeper's own draft-room UI; any other position
+falls back to a neutral gray rather than guessing a color that hasn't been
+seen in a real league yet.
+
+A draft's pick order isn't always a simple alternating snake. This league's
+own draft has ``settings.reversal_round: 3`` — round 3 continues round 2's
+column direction instead of reversing back to round 1's. The grid doesn't
+compute pick order itself: each pick's column is its own real ``draft_slot``,
+which Sleeper has already resolved correctly, reversal round included.
+
+``--draft-id`` selects which draft to render; omit it and the league's most
+recent draft is used automatically (via ``sleeper user-drafts``' same
+underlying lookup). ``--out`` overrides the default output location,
+``<artifacts>/<league_id>-draft-board/<draft_id>.png``. Picks are also
+persisted to a ``sleeper_draft_picks`` DuckDB table as a side effect, so
+"who took which player, and when" is a query away without re-rendering
+anything.
+
+Rendering an in-progress draft (not every round complete yet) is the normal
+case, not an error — the grid simply draws however many picks exist so far.
+
 Querying what you've built
 -------------------------------
 
@@ -431,6 +470,7 @@ it). Query it directly with the ``duckdb`` CLI, or from Python:
    │            name             │
    │           varchar           │
    ├─────────────────────────────┤
+   │ sleeper_draft_picks         │
    │ sleeper_league_configs      │
    │ sleeper_leagues             │
    │ sleeper_matchups            │

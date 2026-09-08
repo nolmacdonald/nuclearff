@@ -2,10 +2,12 @@
 
 from nuclearff.report.bracket import render_bracket_tree, render_playoff_brackets
 from nuclearff.report.build import write_report
+from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.tables import render_position_table, top_n_by_position
 
 __all__ = [
     "render_bracket_tree",
+    "render_draft_board",
     "render_playoff_brackets",
     "render_position_table",
     "top_n_by_position",

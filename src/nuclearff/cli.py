@@ -567,6 +567,83 @@ def _cmd_report_playoff_bracket(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_draft_board(args: argparse.Namespace) -> int:
+    """Fetch a draft's picks, persist them, and render a snake-order grid.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``draft_id``, ``out``.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_draft_board
+    from nuclearff.sleeper.draft import TABLE_NAME, fetch_and_write_draft_picks
+
+    config = _resolve_config(args)
+    config.paths.ensure()
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        draft_id = args.draft_id
+        if draft_id is None:
+            drafts = client.get_league_drafts(args.league_id)
+            if not drafts:
+                print(f"No drafts found for league {args.league_id}.")
+                return EXIT_ERROR
+            draft_id = drafts[0]["draft_id"]
+
+        pick_count = fetch_and_write_draft_picks(client, draft_id, db_path)
+        draft = client.get_draft(draft_id)
+        users = client.get_users(args.league_id)
+
+    if pick_count == 0:
+        print(f"No picks made yet in draft {draft_id}.")
+        return EXIT_ERROR
+
+    settings = draft.get("settings") or {}
+    teams = settings.get("teams")
+    rounds = settings.get("rounds")
+    if not isinstance(teams, int) or not isinstance(rounds, int):
+        print(f"Draft {draft_id} has no teams/rounds settings; cannot lay out a grid.")
+        return EXIT_ERROR
+
+    draft_order = draft.get("draft_order") or {}
+    names_by_user = {u.get("user_id"): u.get("display_name") for u in users}
+    names = {
+        slot: names_by_user.get(user_id) or f"Slot {slot}"
+        for user_id, slot in draft_order.items()
+        if isinstance(slot, int)
+    }
+
+    picks = (
+        read_table(db_path, TABLE_NAME)
+        .filter(pl.col("draft_id") == draft_id)
+        .to_dicts()
+    )
+
+    league_name = (draft.get("metadata") or {}).get("name") or args.league_id
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir
+        / f"{args.league_id}-draft-board"
+        / f"{draft_id}.png"
+    )
+    written = render_draft_board(
+        picks,
+        names,
+        out_path,
+        teams=teams,
+        rounds=rounds,
+        title=f"{league_name} — Draft Board",
+    )
+
+    print(f"Picks:       {pick_count}")
+    print(f"Draft board: {written}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -809,6 +886,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <artifacts>/<league_id>-<season>/brackets)",
     )
     playoff_bracket.set_defaults(func=_cmd_report_playoff_bracket)
+
+    draft_board = report_commands.add_parser(
+        "draft-board",
+        help="Render a draft as a snake-order grid of position-colored pick cards",
+    )
+    draft_board.add_argument("league_id", help="Sleeper league identifier")
+    draft_board.add_argument(
+        "--draft-id",
+        default=None,
+        help="Draft to render (default: the league's most recent draft)",
+    )
+    draft_board.add_argument(
+        "--out",
+        default=None,
+        help=(
+            "Output PNG path "
+            "(default: <artifacts>/<league_id>-draft-board/<draft_id>.png)"
+        ),
+    )
+    draft_board.set_defaults(func=_cmd_report_draft_board)
 
     return parser
 

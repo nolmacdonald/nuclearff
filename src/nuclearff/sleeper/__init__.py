@@ -1,6 +1,7 @@
 """Read-only Sleeper API client and league snapshot capture."""
 
 from nuclearff.sleeper.client import SleeperClient
+from nuclearff.sleeper.draft import draft_pick_rows, fetch_and_write_draft_picks
 from nuclearff.sleeper.leagues import (
     league_config_rows,
     league_rows,
@@ -44,6 +45,8 @@ __all__ = [
     "SnapshotMetadata",
     "bracket_match_rows",
     "detect_anomalies",
+    "draft_pick_rows",
+    "fetch_and_write_draft_picks",
     "fetch_and_write_matchups",
     "fetch_and_write_roster_players",
     "fetch_and_write_standings",
