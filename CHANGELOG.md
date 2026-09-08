@@ -178,6 +178,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live against the real draft: 100+ real picks render correctly across 10
   columns and 11+ rounds, all four confirmed position colors present, no
   cell text overlapping a neighbor.
+- `nuclearff.sleeper.trades` (GitHub Issue 41, split from Issue 40): turns
+  `sleeper_transactions` rows where `type == "trade"` into a manager-pair
+  edge list (`load_trades`) and per-manager aggregates
+  (`manager_trade_counts`, `pairwise_trade_matrix`, `trades_by_season`,
+  `cumulative_trade_counts`), the shared data prep for every trade-network
+  visualization issue (#42-#51). No new Sleeper fetching — reads what
+  `nuclearff sleeper fetch-league --transactions` (issue #20) already wrote.
+  Only `status == "complete"` trades count. Sleeper's schema allows more
+  than two rosters per trade, so an N-team trade explodes into one edge per
+  unordered manager pair (`C(n, 2)`) rather than assuming exactly two
+  parties — every aggregate that counts *trades* rather than *edges*
+  de-duplicates back down to distinct `transaction_id` values per manager
+  first, so a manager in one 3-way trade is counted once, not twice.
+  Verified against this league's real 2-team trade fixture (see
+  `tests/test_sleeper_transactions.py`) plus a synthetic 3-team trade, since
+  this league's real history has none yet. Density over the full manager
+  roster (a manager who never traded) is deliberately out of scope — that
+  needs `sleeper_standings`, a different table; callers needing a
+  zero-trade manager to still appear join against that roster themselves.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
