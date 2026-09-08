@@ -360,5 +360,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `[tool.ty]` `python-version` moved to `[tool.ty.environment]`, where current
   `ty` versions expect it. It was silently failing to parse.
+- `nuclearff.report.tables.render_position_table` raised `FileNotFoundError`
+  for any player missing a `headshot_url` (rookies and inactive players
+  routinely have none) — `circled_image` opens the `headshot_path` cell
+  unconditionally, and an empty path from a missing/failed fetch crashed the
+  whole table. A cached neutral placeholder image now fills that cell
+  instead (GitHub Issue 38). Caught by a new `tests/test_report_tables.py`,
+  added along with `tests/test_report_build.py`'s first `render_tables=True`
+  test to close the coverage gap on this path that let it through.
+- Removed a no-op `.rename({"player_id": "player_id"})` left over in
+  `nuclearff.pipeline.auction_board.build_auction_board` (GitHub Issue 38).
 
 [Unreleased]: https://github.com/nolmacdonald/nuclearff/commits/main

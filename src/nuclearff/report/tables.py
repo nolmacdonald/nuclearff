@@ -129,6 +129,32 @@ def _fetch_headshot(url: str | None, dest: Path, max_size: int = 300) -> str:
         return ""
 
 
+def _placeholder_headshot(cache_dir: Path, size: int = 300) -> str:
+    """A neutral filled-circle image standing in for a missing headshot.
+
+    ``circled_image`` (from ``plottable``) opens its ``headshot_path`` cell
+    with ``plt.imread`` unconditionally — an empty path (what
+    :func:`_fetch_headshot` returns for a missing URL or a failed download)
+    raises ``FileNotFoundError`` deep inside matplotlib/PIL rather than
+    rendering a blank cell. Generated once per ``cache_dir`` and reused, the
+    same way a real headshot is cached.
+
+    Args:
+        cache_dir: Directory the placeholder is cached under.
+        size: Edge length in pixels.
+
+    Returns:
+        The cached placeholder file path as a string.
+    """
+    from PIL import Image
+
+    dest = cache_dir / "_placeholder.png"
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGBA", (size, size), (200, 200, 200, 255)).save(dest, format="PNG")
+    return str(dest)
+
+
 def render_position_table(
     board: pl.DataFrame,
     position: str,
@@ -186,6 +212,7 @@ def render_position_table(
             row["headshot_url"],
             cache_dir / f"{row['player_id']}.png",
         )
+        or _placeholder_headshot(cache_dir)
         for row in top.iter_rows(named=True)
     ]
     top = top.with_columns(pl.Series("headshot_path", headshots))
