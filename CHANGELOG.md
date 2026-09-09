@@ -289,6 +289,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-season sum matches `edges["transaction_id"].n_unique()` exactly (no
   double-counting), and one manager (`nolmacdonald`) alone accounted for
   6 of 2022's 8 league-wide trades.
+- `nuclearff.report.trades.render_manager_season_heatmap` (GitHub Issue 49,
+  split from Issue 40), wired into the same `report trades` command: a
+  manager x season grid, one cell per combination, annotated with the raw
+  trade count. Deliberately denser than Issue 48's line chart — a new CLI
+  helper, `_densify_manager_season_matrix`, fills every manager x season
+  cell with an explicit `0` (including seasons before/after a manager was
+  in the league), since a heatmap has no "connect the dots" failure mode
+  to avoid the way a line chart does. Verified against this league's real
+  15-manager, 6-season history: `nolmacdonald`'s real 2022 peak (6 trades)
+  renders as the single darkest cell on the grid, and every non-participating
+  manager (e.g. `bigTETONclimber`, `jwhitney0220`) renders as an all-zero row
+  rather than a gap.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

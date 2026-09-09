@@ -13,6 +13,7 @@ import polars as pl
 
 from nuclearff.report.trades import (
     render_manager_pair_leaderboard,
+    render_manager_season_heatmap,
     render_trade_leaderboard,
     render_trade_network,
     render_trades_by_manager,
@@ -259,5 +260,43 @@ def test_render_trades_over_time_handles_a_single_season(tmp_path):
     totals = pl.DataFrame({"season": [2025], "trades": [1]})
 
     result = render_trades_over_time(by_season, totals, out_path)
+
+    assert result.is_file()
+
+
+def _season_matrix() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "manager": ["nolmacdonald", "Donkeysride", "hyoga10"],
+            "2025": [1, 1, 0],
+            "2026": [1, 1, 1],
+        }
+    )
+
+
+def test_render_manager_season_heatmap_writes_a_png(tmp_path):
+    out_path = tmp_path / "manager_season_heatmap.png"
+
+    result = render_manager_season_heatmap(_season_matrix(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_manager_season_heatmap_handles_a_zero_cell(tmp_path):
+    """Issue #49: dense over every manager x season combo, 0 not missing."""
+    out_path = tmp_path / "manager_season_heatmap.png"
+
+    result = render_manager_season_heatmap(_season_matrix(), out_path)
+
+    assert result.is_file()
+
+
+def test_render_manager_season_heatmap_handles_a_single_manager_and_season(tmp_path):
+    out_path = tmp_path / "manager_season_heatmap.png"
+    matrix = pl.DataFrame({"manager": ["nolmacdonald"], "2025": [0]})
+
+    result = render_manager_season_heatmap(matrix, out_path)
 
     assert result.is_file()

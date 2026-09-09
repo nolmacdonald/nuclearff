@@ -716,6 +716,42 @@ def _densify_trades_by_season(
     )
 
 
+def _densify_manager_season_matrix(
+    by_season: pl.DataFrame, all_managers: list[str], all_seasons: list[int]
+) -> pl.DataFrame:
+    """Pivot ``trades_by_season`` into a dense manager x season matrix.
+
+    Unlike :func:`_densify_trades_by_season` (which deliberately leaves a
+    gap for a season a manager didn't roster, for a line chart where
+    connecting across it would be misleading), issue #49's heatmap wants
+    every manager x season cell filled — a season before/after a manager
+    was in the league renders as the same explicit ``0`` as a season they
+    rostered but didn't trade in, since a heatmap has no "connect the
+    dots" failure mode to avoid.
+
+    Args:
+        by_season: Output of ``trades_by_season`` (sparse — only
+            combinations with at least one trade).
+        all_managers: The full manager roster.
+        all_seasons: Every season in the league's history.
+
+    Returns:
+        One ``manager`` column plus one column per season in
+        ``all_seasons`` (as a string column name), ``0`` for any
+        combination not present in ``by_season``.
+    """
+    lookup = {
+        (row["manager"], row["season"]): row["trades"] for row in by_season.to_dicts()
+    }
+    rows = []
+    for manager in all_managers:
+        row: dict[str, object] = {"manager": manager}
+        for season in all_seasons:
+            row[str(season)] = lookup.get((manager, season), 0)
+        rows.append(row)
+    return pl.DataFrame(rows)
+
+
 def _cmd_report_trades(args: argparse.Namespace) -> int:
     """Render the manager trade network from stored trade history.
 
@@ -735,6 +771,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import (
         render_manager_pair_leaderboard,
+        render_manager_season_heatmap,
         render_trade_leaderboard,
         render_trade_network,
         render_trades_by_manager,
@@ -824,11 +861,26 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         top_manager_pairs(edges), out_dir / "manager_pair_leaderboard.png"
     )
 
-    by_season = trades_by_season(edges)
-    if standings is not None:
-        by_season = _densify_trades_by_season(by_season, standings)
+    by_season_raw = trades_by_season(edges)
+    by_season = (
+        _densify_trades_by_season(by_season_raw, standings)
+        if standings is not None
+        else by_season_raw
+    )
     over_time_path = render_trades_over_time(
         by_season, total_trades_by_season(edges), out_dir / "trades_over_time.png"
+    )
+
+    all_seasons = sorted(
+        standings["season"].unique().to_list()
+        if standings is not None
+        else by_season_raw["season"].unique().to_list()
+    )
+    season_matrix = _densify_manager_season_matrix(
+        by_season_raw, all_managers, all_seasons
+    )
+    season_heatmap_path = render_manager_season_heatmap(
+        season_matrix, out_dir / "manager_season_heatmap.png"
     )
 
     print(f"Managers:                 {counts.height}")
@@ -837,6 +889,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     print(f"Trade network:            {network_path}")
     print(f"Trade leaderboard:        {leaderboard_path}")
     print(f"Manager-pair leaderboard: {pair_leaderboard_path}")
+    print(f"Manager x season heatmap: {season_heatmap_path}")
     print(f"Trades over time:         {over_time_path}")
     return EXIT_OK
 
