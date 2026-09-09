@@ -454,15 +454,16 @@ Trade network analysis
 ------------------------------
 
 ``report trades`` renders the manager trade network from stored trade
-history — currently a single horizontal bar chart of total trades per
-manager, with a partner heatmap, a ``networkx`` graph, and others landing as
-later issues on top of the same command:
+history — currently a bar chart of total trades per manager and a
+manager-pair heatmap, with a ``networkx`` graph and others landing as later
+issues on top of the same command:
 
 .. code-block:: text
 
    $ nuclearff --root ./demo report trades 1367225133634191360
    Managers:          15
    Trades by manager: ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
+   Trades heatmap:    ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
 
 That's this league's real trade history: 22 completed trades since 2021,
 across the 15 managers who have ever held a roster in the league.
@@ -494,7 +495,16 @@ trades; ``sleeper_standings`` (written by ``--standings``) supplies the
 *full* manager roster, so a manager with zero trades still shows up at
 ``0`` instead of being silently missing. Skip ``--standings`` and the chart
 still renders — it just can't include a manager who never traded, since
-trade data alone gives no way to know they exist.
+trade data alone gives no way to know they exist. The same roster join
+applies to the heatmap below: a manager with zero trades still gets a
+dense, all-zero row and column rather than being omitted from the grid.
+
+The heatmap is symmetric — trades between ``casitzmann`` and
+``nolmacdonald`` show as ``4`` in both directions — with a ``0`` diagonal,
+since a manager can't trade with themselves. The three-team trade mentioned
+above lands as one ``+1`` for each of the three pairs it touches
+(``casitzmann``-``nolmacdonald``, ``casitzmann``-``nolanmacdonald``,
+``nolmacdonald``-``nolanmacdonald``), not counted twice for any single pair.
 
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-trades/``.
