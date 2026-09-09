@@ -16,6 +16,10 @@ from nuclearff.report.trades import (
     render_trades_heatmap,
     render_trades_over_time,
 )
+from nuclearff.report.user_leagues import (
+    render_user_leagues_table,
+    summarize_league_types,
+)
 
 __all__ = [
     "render_bracket_tree",
@@ -32,6 +36,8 @@ __all__ = [
     "render_trades_by_manager",
     "render_trades_heatmap",
     "render_trades_over_time",
+    "render_user_leagues_table",
+    "summarize_league_types",
     "top_n_by_position",
     "write_report",
 ]

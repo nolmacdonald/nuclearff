@@ -551,6 +551,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sources, plus a pull request template.
 - Ruff formatting and linting configuration.
 - `ty` type checking configuration.
+- `nuclearff report user-leagues <username_or_user_id> --season <year>`
+  (GitHub Issue 77): renders a PNG table of every league a Sleeper user is
+  in for a season — avatar, name, league id, type, team count, status — plus
+  a per-type count summary (however many types are actually present, not a
+  fixed template) with a Total row. Wraps two existing-but-never-rendered
+  pieces: `SleeperClient.get_user_leagues` and `SleeperClient.avatar_url`.
+  Also adds `nuclearff.sleeper.leagues.league_type_name`, extracted from the
+  `_LEAGUE_TYPE_NAMES` lookup `league_rows` already had, for reuse here —
+  deliberately trusts `settings.type` alone rather than the stricter
+  `is_chopped_league` (which also requires `last_chopped_leg` in settings,
+  a signal that a real account's real Chopped league can lack before it has
+  actually chopped anyone). Two real rendering bugs surfaced and fixed while
+  verifying against a real account's real 18 leagues: avatars overlapping
+  adjacent rows' text (root cause: two `plottable.Table`-bearing Axes
+  sharing one figure under `constrained_layout`, which doesn't guarantee
+  the row height `circled_image` sizes against — fixed by rendering the
+  league grid and the summary as two independent, correctly-sized figures
+  and compositing them with PIL) and long league names overflowing into
+  the League ID column (fixed by sizing that column to the longest real
+  name present, plus adding a real border divider between every remaining
+  column — none had one before, which made even correctly-sized adjacent
+  columns look like they were touching). A league name with a character
+  outside the Basic Multilingual Plane (a real emoji in a real league name,
+  `"TEXAS BOYS \U0001f920"`) rendered as a missing-glyph box under
+  matplotlib's bundled font; stripped for the rendered label rather than
+  adding a new emoji-font dependency for one cosmetic case.
 
 ### Changed
 

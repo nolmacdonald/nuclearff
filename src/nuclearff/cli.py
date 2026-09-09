@@ -644,6 +644,52 @@ def _cmd_report_draft_board(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_user_leagues(args: argparse.Namespace) -> int:
+    """Render a Sleeper user's leagues for a season as a PNG table.
+
+    Args:
+        args: Parsed arguments carrying ``username`` (username or user id),
+            ``season``, ``sport``, and ``out``.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.report import render_user_leagues_table
+
+    config = _resolve_config(args)
+    config.paths.ensure()
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        user = client.get_user(args.username)
+        leagues = client.get_user_leagues(
+            user["user_id"], args.season, sport=args.sport
+        )
+
+    if not leagues:
+        print(f"No leagues found for {args.username} in {args.sport} {args.season}.")
+        return EXIT_ERROR
+
+    display_name = user.get("display_name") or args.username
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir
+        / f"{user['user_id']}-leagues"
+        / f"{args.season}.png"
+    )
+    written = render_user_leagues_table(
+        leagues,
+        out_path,
+        title=f"{display_name}'s Leagues",
+        subtitle=f"{len(leagues)} leagues  |  {args.sport}  |  {args.season}",
+        cache_dir=config.paths.cache_dir / "avatars",
+    )
+
+    print(f"User:    {display_name} ({user['user_id']})")
+    print(f"Leagues: {written}")
+    return EXIT_OK
+
+
 def _densify_trade_matrix(
     matrix: pl.DataFrame, all_managers: list[str]
 ) -> pl.DataFrame:
@@ -1186,6 +1232,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <artifacts>/<league_id>-trades)",
     )
     trades.set_defaults(func=_cmd_report_trades)
+
+    user_leagues_report = report_commands.add_parser(
+        "user-leagues",
+        help="Render a Sleeper user's leagues for a season as a PNG table",
+    )
+    user_leagues_report.add_argument("username", help="Sleeper username or user id")
+    user_leagues_report.add_argument(
+        "--season", required=True, help="Season year, e.g. 2026"
+    )
+    user_leagues_report.add_argument(
+        "--sport", default="nfl", help="Sport key (default: nfl)"
+    )
+    user_leagues_report.add_argument(
+        "--out",
+        default=None,
+        help=("Output PNG path (default: <artifacts>/<user_id>-leagues/<season>.png)"),
+    )
+    user_leagues_report.set_defaults(func=_cmd_report_user_leagues)
 
     return parser
 

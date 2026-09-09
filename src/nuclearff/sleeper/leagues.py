@@ -55,6 +55,36 @@ bracket) was confirmed live against a real league
 standing is derived without a bracket.
 """
 
+
+def league_type_name(league: dict[str, Any]) -> str:
+    """Resolve a raw league payload's ``settings.type`` to a readable label.
+
+    Deliberately trusts ``settings.type`` alone, not
+    :func:`nuclearff.sleeper.standings.is_chopped_league`'s stricter
+    ``type == 3 and "last_chopped_leg" in settings`` check -- that check
+    exists to confirm a Chopped league has actually started eliminating
+    rosters before running Chopped-specific standings logic, not to answer
+    "what kind of league is this." Real data shows why the distinction
+    matters: of a real account's 4 real ``type == 3`` leagues, only 3 carry
+    ``last_chopped_leg`` -- the 4th just hasn't chopped anyone yet, but it is
+    still, declaratively, a Chopped league.
+
+    Args:
+        league: A raw league payload, as returned by
+            :meth:`SleeperClient.get_league` or :meth:`SleeperClient.
+            get_user_leagues`.
+
+    Returns:
+        One of ``"redraft"``, ``"keeper"``, ``"dynasty"``, ``"chopped"``, or
+        ``"unknown"`` for any other value -- Sleeper's own docs only
+        document 0/1/2, and nothing guarantees that stays exhaustive.
+    """
+    settings = league.get("settings")
+    if not isinstance(settings, dict):
+        return "unknown"
+    return _LEAGUE_TYPE_NAMES.get(settings.get("type"), "unknown")
+
+
 _LEAGUE_COLUMNS = (
     "league_id",
     "previous_league_id",
@@ -255,7 +285,7 @@ def league_rows(
                 "season": int(league["season"]) if league.get("season") else None,
                 "name": league.get("name"),
                 "status": league.get("status"),
-                "league_type": _LEAGUE_TYPE_NAMES.get(settings.get("type"), "unknown"),
+                "league_type": league_type_name(league),
                 "total_rosters": league.get("total_rosters"),
                 "settings": json.dumps(settings),
                 "scoring_settings": json.dumps(league.get("scoring_settings") or {}),

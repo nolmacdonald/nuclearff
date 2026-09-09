@@ -1248,3 +1248,84 @@ def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):
 
     assert exit_code == EXIT_ERROR
     assert "No sleeper_transactions table found" in capsys.readouterr().out
+
+
+# --- report user-leagues (GitHub Issue 77) ---------------------------------
+
+
+@responses.activate
+def test_report_user_leagues_renders_a_png(tmp_path, capsys):
+    """Resolves a username to a user id, then renders their leagues as a PNG."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/nolmacdonald",
+        json={"user_id": "332632476830679040", "display_name": "nolmacdonald"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/leagues/nfl/2026",
+        json=[
+            {
+                "league_id": "1",
+                "name": "NUCLEARFF REDRAFT",
+                "avatar": None,
+                "status": "in_season",
+                "total_rosters": 10,
+                "settings": {"type": 0},
+            },
+            {
+                "league_id": "2",
+                "name": "NUCLEARFF DYNASTY",
+                "avatar": None,
+                "status": "in_season",
+                "total_rosters": 12,
+                "settings": {"type": 2},
+            },
+        ],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "user-leagues",
+            "nolmacdonald",
+            "--season",
+            "2026",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    out = capsys.readouterr().out
+    assert "nolmacdonald (332632476830679040)" in out
+    out_path = (
+        tmp_path / "data" / "artifacts" / "332632476830679040-leagues" / "2026.png"
+    )
+    assert out_path.is_file()
+
+
+@responses.activate
+def test_report_user_leagues_reports_no_leagues_found(tmp_path, capsys):
+    """A user with no leagues that season is reported, not a traceback."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/nolmacdonald",
+        json={"user_id": "332632476830679040", "display_name": "nolmacdonald"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/332632476830679040/leagues/nfl/2026",
+        json=[],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "user-leagues",
+            "nolmacdonald",
+            "--season",
+            "2026",
+        ]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "No leagues found" in capsys.readouterr().out
