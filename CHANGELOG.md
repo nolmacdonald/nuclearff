@@ -324,8 +324,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   real history: `nolmacdonald` is confirmed the league's all-time most
   prolific trader (14 of 22 trades), visibly taking the lead in late 2023.
 - `nuclearff.report.trades.render_trade_partner_diversity` (GitHub Issue 51,
-  split from Issue 40, completing the trade-network epic), wired into the
-  same `report trades` command: a scatter of total trades vs. unique trade
+  split from Issue 40), wired into the same `report trades` command: a
+  scatter of total trades vs. unique trade
   partners per manager, separating a manager who trades widely from one who
   repeatedly trades with the same 1-2 people — a distinction the raw trade
   count alone can't make. A real coordinate collision, not just a
@@ -342,6 +342,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the widest traders, and `ksavabi`/`macbuffet66`/`nawfeastdallas` (each
   1 trade, 1 partner) visibly contrast with `hyoga10` (3 trades, 3
   partners) — same raw trade count band, opposite diversity.
+- `nuclearff.report.trades.render_chord_diagram` (GitHub Issue 45, split
+  from Issue 40, completing the trade-network epic), wired into the same
+  `report trades` command as a tenth PNG: a circular chord diagram, one
+  point per manager evenly spaced on a circle, joined by a curved arc
+  (quadratic Bezier, pulled toward the circle's center) per manager pair
+  with at least one trade, widened by that pair's trade count. Issue 45
+  originally decided on `plotly` + `kaleido` for this (a static PNG via
+  `fig.write_image()`, not an interactive HTML file, to match every other
+  artifact in this epic) — reversed during implementation: current
+  `kaleido` (1.x, required by current `plotly`) needs a separately
+  installed headless Chrome to export anything at all, and failed outright
+  with no browser present; pinning back to the old self-contained
+  `kaleido==0.2.1` isn't an option either, since current `plotly` has
+  dropped support for that legacy API. Rather than adding a real
+  headless-browser dependency (exactly what `report/tables.py`'s own "no
+  headless browser anywhere in the path" module docstring rules out) or
+  pinning to two now-unmaintained packages, hand-drew the diagram in
+  matplotlib instead — the fallback #40's own original design notes had
+  already recommended before the plotly decision, needing no `dev` extra
+  at all. See `decisions.md` in the project brain for the full reasoning.
+  Verified against the real 15-manager, 22-trade history: node size and
+  edge width both track the already-confirmed real ranking (`nolmacdonald`
+  the largest node with the thickest edges), and node positions measured
+  from the rendered PNG sit at a consistent radius from center (a real
+  circle, not skewed by the title's layout margin).
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

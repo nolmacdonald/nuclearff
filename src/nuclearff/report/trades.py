@@ -2,12 +2,13 @@
 
 ``matplotlib`` is imported lazily inside each render function, the same
 posture :mod:`nuclearff.report.tables` uses, so importing ``nuclearff.report``
-doesn't require it at module load time. ``render_trades_by_manager``,
-``render_trades_heatmap``, and ``render_manager_pair_leaderboard`` need no
+doesn't require it at module load time. Every render function here needs no
 ``dev`` extra at all, since ``matplotlib`` is a core dependency (unlike
 ``plottable``) -- ``render_trade_network`` needs ``networkx`` and
 ``render_trade_leaderboard`` needs ``plottable``, both genuine ``dev``
-extras.
+extras. ``render_chord_diagram`` is hand-drawn in matplotlib rather than
+via ``plotly``/``kaleido`` for the same "no headless browser anywhere in
+the path" reason -- see that function's own docstring.
 """
 
 from __future__ import annotations
@@ -904,4 +905,141 @@ def render_trade_partner_diversity(
     fig.savefig(out_path, facecolor="white", dpi=200)
     plt.close(fig)
     logger.info("Wrote %s (%d managers)", out_path, counts.height)
+    return out_path
+
+
+def render_chord_diagram(
+    counts: pl.DataFrame,
+    matrix: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Manager Trade Network (Chord Diagram)",
+) -> Path:
+    """Render a circular chord diagram of trades between managers.
+
+    A more presentation-oriented view of the same trade-partner
+    relationships as :func:`render_trade_network`'s node-link graph:
+    managers sit evenly spaced on a circle, and each pair with at least
+    one trade is joined by a curved arc, widened by the trade count
+    between that pair.
+
+    Hand-drawn in matplotlib (a quadratic Bezier per arc, sampled and
+    plotted as a line) rather than via ``plotly``/``kaleido`` -- GitHub
+    Issue 45 originally decided on the latter, but ``kaleido``'s current
+    major version needs a separately-installed headless Chrome to export
+    a static image at all (its old self-contained-Chromium 0.x line is
+    no longer compatible with current ``plotly``), which both broke
+    outright in a real sandboxed environment with no browser present and
+    directly contradicts this module's own "no headless browser anywhere
+    in the path" posture (see :mod:`nuclearff.report.tables`). Reversed
+    back to the epic's original (#40) fallback recommendation -- see
+    ``decisions.md`` in the project brain for the full reasoning. Needs no
+    ``dev`` extra at all: matplotlib is a core dependency.
+
+    Args:
+        counts: One row per manager, with ``manager`` and ``trades``
+            columns, densified against the full manager roster so a
+            zero-trade manager still appears, here as an isolated point
+            on the circle -- e.g. :func:`render_trade_network`'s
+            ``counts`` input.
+        matrix: A manager x manager trade-count matrix, densified the
+            same way and with exactly the same managers as ``counts`` --
+            e.g. :func:`render_trades_heatmap`'s ``matrix`` input.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering the chord diagram needs matplotlib, a core "
+            "dependency: `uv sync`."
+        ) from exc
+
+    managers = counts["manager"].to_list()
+    n = len(managers)
+    trades_by_manager = dict(zip(managers, counts["trades"].to_list(), strict=True))
+    matrix_rows = {row["manager"]: row for row in matrix.to_dicts()}
+
+    angles = [2 * math.pi * i / n for i in range(n)] if n else []
+    positions = dict(
+        zip(managers, ((math.cos(a), math.sin(a)) for a in angles), strict=True)
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 9), layout="constrained")
+
+    weights = [
+        matrix_rows[a][b] for a, b in combinations(managers, 2) if matrix_rows[a][b] > 0
+    ]
+    max_weight = max(weights, default=0)
+    for manager_a, manager_b in combinations(managers, 2):
+        weight = matrix_rows[manager_a][manager_b]
+        if weight == 0:
+            continue
+        x0, y0 = positions[manager_a]
+        x1, y1 = positions[manager_b]
+        # Quadratic Bezier control point pulled toward the circle's
+        # center -- the standard chord-diagram bulge, so arcs between
+        # nearby managers don't run straight along the circle's rim and
+        # clutter it.
+        cx, cy = (x0 + x1) * 0.15, (y0 + y1) * 0.15
+        t = [i / 40 for i in range(41)]
+        curve_x = [(1 - s) ** 2 * x0 + 2 * (1 - s) * s * cx + s**2 * x1 for s in t]
+        curve_y = [(1 - s) ** 2 * y0 + 2 * (1 - s) * s * cy + s**2 * y1 for s in t]
+        ax.plot(
+            curve_x,
+            curve_y,
+            color="#4c72b0",
+            alpha=0.5,
+            linewidth=0.5 + 3.5 * weight / max_weight if max_weight else 1,
+            zorder=1,
+        )
+
+    max_trades = max(trades_by_manager.values(), default=0)
+    node_x = [positions[m][0] for m in managers]
+    node_y = [positions[m][1] for m in managers]
+    node_size = [
+        80 + 320 * trades_by_manager[m] / max_trades if max_trades else 80
+        for m in managers
+    ]
+    ax.scatter(node_x, node_y, s=node_size, color="#c44e52", zorder=2)
+
+    # Labels placed just outside the circle at each node's own angle,
+    # with horizontal alignment flipped on the circle's left half so text
+    # extends away from the circle rather than back over it.
+    for manager, angle in zip(managers, angles, strict=True):
+        lx, ly = 1.15 * math.cos(angle), 1.15 * math.sin(angle)
+        ax.text(
+            lx,
+            ly,
+            manager,
+            ha="left" if math.cos(angle) >= 0 else "right",
+            va="center",
+            fontsize=9,
+            color="#222222",
+        )
+
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    ax.set_xlim(-1.6, 1.6)
+    ax.set_ylim(-1.6, 1.6)
+    ax.set_aspect("equal")
+    ax.axis("off")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info("Wrote %s (%d managers)", out_path, n)
     return out_path
