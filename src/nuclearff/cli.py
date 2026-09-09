@@ -680,6 +680,42 @@ def _densify_trade_matrix(
     return pl.DataFrame(rows)
 
 
+def _densify_trades_by_season(
+    by_season: pl.DataFrame, standings: pl.DataFrame
+) -> pl.DataFrame:
+    """Expand ``trades_by_season`` to every season each manager actually rostered.
+
+    :func:`nuclearff.sleeper.trades.trades_by_season` is dense only over
+    seasons with at least one trade (by its own module's design — see its
+    docstring). Joining against ``sleeper_standings`` here fills an explicit
+    ``0`` for a season the manager rostered but didn't trade in, while
+    leaving no row at all for a season before/after the manager was
+    actually in the league — a real gap in the resulting line chart, not a
+    misleading connect-the-dots across seasons that never happened for
+    them.
+
+    Args:
+        by_season: Output of ``trades_by_season``.
+        standings: The ``sleeper_standings`` table (needs ``season`` and
+            ``display_name``).
+
+    Returns:
+        One row per (manager, season) the manager actually rostered:
+        ``manager``, ``season``, ``trades`` (``0`` if they didn't trade
+        that season).
+    """
+    manager_seasons = (
+        standings.select(pl.col("display_name").alias("manager"), "season")
+        .filter(pl.col("manager").is_not_null())
+        .unique()
+    )
+    return (
+        manager_seasons.join(by_season, on=["manager", "season"], how="left")
+        .with_columns(pl.col("trades").fill_null(0))
+        .sort(["manager", "season"])
+    )
+
+
 def _cmd_report_trades(args: argparse.Namespace) -> int:
     """Render the manager trade network from stored trade history.
 
@@ -703,12 +739,15 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         render_trade_network,
         render_trades_by_manager,
         render_trades_heatmap,
+        render_trades_over_time,
     )
     from nuclearff.sleeper.trades import (
         load_trades,
         manager_trade_counts,
         pairwise_trade_matrix,
         top_manager_pairs,
+        total_trades_by_season,
+        trades_by_season,
     )
 
     config = _resolve_config(args)
@@ -736,6 +775,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
             "appear. Run `sleeper fetch-league --standings` for the full roster."
         )
         all_managers = counts["manager"].to_list()
+        standings = None
 
     # Densified over every column manager_trade_counts produces, not just
     # `trades` -- the leaderboard table needs unique_partners/
@@ -784,12 +824,20 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         top_manager_pairs(edges), out_dir / "manager_pair_leaderboard.png"
     )
 
+    by_season = trades_by_season(edges)
+    if standings is not None:
+        by_season = _densify_trades_by_season(by_season, standings)
+    over_time_path = render_trades_over_time(
+        by_season, total_trades_by_season(edges), out_dir / "trades_over_time.png"
+    )
+
     print(f"Managers:                 {counts.height}")
     print(f"Trades by manager:        {out_path}")
     print(f"Trades heatmap:           {heatmap_path}")
     print(f"Trade network:            {network_path}")
     print(f"Trade leaderboard:        {leaderboard_path}")
     print(f"Manager-pair leaderboard: {pair_leaderboard_path}")
+    print(f"Trades over time:         {over_time_path}")
     return EXIT_OK
 
 

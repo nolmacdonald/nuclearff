@@ -24,6 +24,7 @@ from nuclearff.sleeper.trades import (
     manager_trade_counts,
     pairwise_trade_matrix,
     top_manager_pairs,
+    total_trades_by_season,
     trades_by_season,
 )
 
@@ -153,6 +154,7 @@ def test_load_trades_returns_empty_frame_for_no_trades(tmp_path):
     assert pairwise_trade_matrix(edges).height == 0
     assert top_manager_pairs(edges).height == 0
     assert trades_by_season(edges).height == 0
+    assert total_trades_by_season(edges).height == 0
     assert cumulative_trade_counts(edges).height == 0
 
 
@@ -248,6 +250,19 @@ def test_trades_by_season_counts_distinct_trades_per_season(db_path):
     ).to_dicts()[0]
 
     assert row["trades"] == 1
+
+
+# --- total_trades_by_season -------------------------------------------------------
+
+
+def test_total_trades_by_season_counts_each_trade_once(db_path):
+    """The 3-team trade must not multi-count as 2 (or 3) league-wide trades."""
+    edges = load_trades(db_path)
+    totals = total_trades_by_season(edges)
+    by_season = dict(zip(totals["season"], totals["trades"], strict=True))
+
+    assert by_season[2025] == 1
+    assert by_season[2026] == 1
 
 
 # --- cumulative_trade_counts -------------------------------------------------------

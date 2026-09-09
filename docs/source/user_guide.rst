@@ -455,8 +455,9 @@ Trade network analysis
 
 ``report trades`` renders the manager trade network from stored trade
 history — currently a bar chart of total trades per manager, a manager-pair
-heatmap, a node-link network graph, a leaderboard table, and a manager-pair
-leaderboard, with others landing as later issues on top of the same command:
+heatmap, a node-link network graph, a leaderboard table, a manager-pair
+leaderboard, and a trades-over-time line chart, with others landing as
+later issues on top of the same command:
 
 .. code-block:: text
 
@@ -467,6 +468,7 @@ leaderboard, with others landing as later issues on top of the same command:
    Trade network:            ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
    Trade leaderboard:        ./demo/data/artifacts/1367225133634191360-trades/trade_leaderboard.png
    Manager-pair leaderboard: ./demo/data/artifacts/1367225133634191360-trades/manager_pair_leaderboard.png
+   Trades over time:         ./demo/data/artifacts/1367225133634191360-trades/trades_over_time.png
 
 That's this league's real trade history: 22 completed trades since 2021,
 across the 15 managers who have ever held a roster in the league.
@@ -534,6 +536,17 @@ that actually traded — with a real 22-trade history, that's 10 pairs across
 trade rows are exploded into manager-pair edges with the two names already
 sorted alphabetically, so grouping directly on them can never produce both
 an A↔B and a B↔A row for the same pair.
+
+The trades-over-time chart is one thin line per manager plus a bold
+league-wide total line, by season. A manager's line covers only the
+seasons ``sleeper_standings`` shows them actually rostering — joining a
+league partway through starts their line there rather than drawing it back
+through seasons before they existed, and a season they rostered but didn't
+trade in renders as a real dip to ``0`` rather than a gap. The league
+total counts each trade once regardless of how many managers it involved,
+the same de-duplication every other trade-count aggregate in this project
+uses — summing every manager's own line instead would roughly double-count
+a season's real trade volume, since most trades involve two managers.
 
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-trades/``.

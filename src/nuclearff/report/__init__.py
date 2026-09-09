@@ -10,6 +10,7 @@ from nuclearff.report.trades import (
     render_trade_network,
     render_trades_by_manager,
     render_trades_heatmap,
+    render_trades_over_time,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "render_trade_network",
     "render_trades_by_manager",
     "render_trades_heatmap",
+    "render_trades_over_time",
     "top_n_by_position",
     "write_report",
 ]
