@@ -2,14 +2,17 @@
 
 ``matplotlib`` is imported lazily inside each render function, the same
 posture :mod:`nuclearff.report.tables` uses, so importing ``nuclearff.report``
-doesn't require it at module load time -- though it never actually needs the
-``dev`` extra here, since ``matplotlib`` is a core dependency (unlike
-``plottable``).
+doesn't require it at module load time. Most functions here need no ``dev``
+extra at all, since ``matplotlib`` is a core dependency (unlike ``plottable``)
+-- the exception is :func:`render_trade_network`, which also needs
+``networkx``, a genuine ``dev`` extra.
 """
 
 from __future__ import annotations
 
 import logging
+import math
+from itertools import combinations
 from pathlib import Path
 
 import polars as pl
@@ -174,4 +177,117 @@ def render_trades_heatmap(
     fig.savefig(out_path, facecolor="white", dpi=200)
     plt.close(fig)
     logger.info("Wrote %s (%d managers)", out_path, n)
+    return out_path
+
+
+def render_trade_network(
+    counts: pl.DataFrame,
+    matrix: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Manager Trade Network",
+) -> Path:
+    """Render a node-link graph of the manager trade network.
+
+    Each manager is a node (sized by their total trades); each manager pair
+    with at least one trade between them is an edge (widened by the trade
+    count between that pair).
+
+    Args:
+        counts: One row per manager, with ``manager`` and ``trades`` columns
+            -- e.g. :func:`render_trades_by_manager`'s ``counts`` input,
+            densified against the full manager roster so a zero-trade
+            manager still appears, here as an isolated node rather than a
+            missing one.
+        matrix: A manager x manager trade-count matrix, densified the same
+            way -- e.g. :func:`render_trades_heatmap`'s ``matrix`` input.
+            Must have exactly the same managers as ``counts``.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` or ``networkx`` (a
+            ``dev`` extra) is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+        import networkx as nx
+    except ImportError as exc:
+        raise RenderingUnavailableError(
+            "Rendering the trade network needs the `dev` extra (networkx, "
+            "matplotlib): `uv sync --extra dev`."
+        ) from exc
+
+    managers = counts["manager"].to_list()
+    trades_by_manager = dict(zip(managers, counts["trades"].to_list(), strict=True))
+    matrix_rows = {row["manager"]: row for row in matrix.to_dicts()}
+
+    graph = nx.Graph()
+    graph.add_nodes_from(managers)
+    for manager_a, manager_b in combinations(managers, 2):
+        weight = matrix_rows[manager_a][manager_b]
+        if weight > 0:
+            graph.add_edge(manager_a, manager_b, weight=weight)
+
+    # A fixed seed, not networkx's default random one: the same trade
+    # history should always render to the same layout, matching this
+    # project's broader habit of deterministic output (e.g. alphabetical
+    # tie-breaks elsewhere in this module). `k` (target inter-node distance)
+    # is widened well past spring_layout's own default (`1/sqrt(n)`) --
+    # real-name manager labels are much wider than the single-character
+    # labels the default spacing assumes, and at the default spacing every
+    # label in a real, non-trivial roster overlapped its neighbors.
+    n = max(len(managers), 1)
+    pos = nx.spring_layout(graph, seed=42, k=3 / math.sqrt(n))
+
+    node_sizes = [400 + 200 * trades_by_manager[m] for m in graph.nodes]
+    edge_widths = [1 + 1.5 * w for *_, w in graph.edges(data="weight")]
+
+    fig, ax = plt.subplots(figsize=(10, 10))
+    nx.draw_networkx_edges(
+        graph, pos, width=edge_widths, edge_color="#4c72b0", alpha=0.5, ax=ax
+    )
+    nx.draw_networkx_nodes(
+        graph, pos, node_size=node_sizes, node_color="#4c72b0", alpha=0.85, ax=ax
+    )
+    nx.draw_networkx_labels(graph, pos, font_size=9, ax=ax)
+
+    # `pad=30` on the title, matching `report/tables.py`'s subtitle pattern:
+    # without it, the default title padding is too tight for a second line
+    # of text immediately above the axes, and the caveat below overlapped
+    # the title outright.
+    ax.set_title(title, loc="left", fontsize=14, weight="bold", pad=30)
+    ax.text(
+        0,
+        1.006,
+        "A sparse graph reflects a small, real trade sample -- not missing data.",
+        transform=ax.transAxes,
+        fontsize=9,
+        style="italic",
+        color="#888888",
+        ha="left",
+        va="bottom",
+    )
+    ax.axis("off")
+    fig.tight_layout()
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info(
+        "Wrote %s (%d managers, %d edges)",
+        out_path,
+        len(managers),
+        graph.number_of_edges(),
+    )
     return out_path

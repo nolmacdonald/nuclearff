@@ -454,9 +454,9 @@ Trade network analysis
 ------------------------------
 
 ``report trades`` renders the manager trade network from stored trade
-history — currently a bar chart of total trades per manager and a
-manager-pair heatmap, with a ``networkx`` graph and others landing as later
-issues on top of the same command:
+history — currently a bar chart of total trades per manager, a manager-pair
+heatmap, and a node-link network graph, with others landing as later issues
+on top of the same command:
 
 .. code-block:: text
 
@@ -464,6 +464,7 @@ issues on top of the same command:
    Managers:          15
    Trades by manager: ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
    Trades heatmap:    ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
+   Trade network:     ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
 
 That's this league's real trade history: 22 completed trades since 2021,
 across the 15 managers who have ever held a roster in the league.
@@ -505,6 +506,15 @@ since a manager can't trade with themselves. The three-team trade mentioned
 above lands as one ``+1`` for each of the three pairs it touches
 (``casitzmann``-``nolmacdonald``, ``casitzmann``-``nolanmacdonald``,
 ``nolmacdonald``-``nolanmacdonald``), not counted twice for any single pair.
+
+The network graph draws one node per manager (sized by their total trades)
+and one edge per manager pair that has traded (widened by the trade count
+between that pair) — the same densified, full-roster inputs as the bar
+chart and heatmap, so a zero-trade manager still appears, here as an
+isolated node rather than being silently dropped. With only 22 trades
+across 15 managers, the graph is genuinely sparse — several managers never
+connect to the rest of the league at all. That is this league's real
+trading activity, not a rendering bug, and the chart says so directly.
 
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-trades/``.

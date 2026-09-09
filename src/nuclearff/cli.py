@@ -697,7 +697,11 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         An exit code.
     """
     from nuclearff.duckdb_io import read_table
-    from nuclearff.report import render_trades_by_manager, render_trades_heatmap
+    from nuclearff.report import (
+        render_trade_network,
+        render_trades_by_manager,
+        render_trades_heatmap,
+    )
     from nuclearff.sleeper.trades import (
         load_trades,
         manager_trade_counts,
@@ -745,10 +749,12 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
 
     matrix = _densify_trade_matrix(pairwise_trade_matrix(edges), all_managers)
     heatmap_path = render_trades_heatmap(matrix, out_dir / "trades_heatmap.png")
+    network_path = render_trade_network(counts, matrix, out_dir / "trade_network.png")
 
     print(f"Managers:          {counts.height}")
     print(f"Trades by manager: {out_path}")
     print(f"Trades heatmap:    {heatmap_path}")
+    print(f"Trade network:     {network_path}")
     return EXIT_OK
 
 
