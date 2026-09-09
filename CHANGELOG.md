@@ -269,6 +269,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   league's real 22-trade history: 10 real pairs, `casitzmann`/
   `nolmacdonald` and `BigCookie96`/`nolmacdonald` tied at the top with 4
   trades each.
+- `nuclearff.sleeper.trades.total_trades_by_season` and
+  `nuclearff.report.trades.render_trades_over_time` (GitHub Issue 48,
+  split from Issue 40), wired into the same `report trades` command: one
+  thin line per manager plus a bold league-wide total, by season. The
+  total counts each trade once regardless of participant count, the same
+  de-duplication every other trade aggregate in this module already uses
+  — grouping distinct `transaction_id` per season directly, not summing
+  `trades_by_season` across managers (which would roughly double-count a
+  season's real volume, since most trades involve two managers). A new
+  CLI helper, `_densify_trades_by_season`, joins against
+  `sleeper_standings` so a manager's line covers only the seasons they
+  actually rostered — a season they rostered but didn't trade in is a
+  real `0` (not absent), while a season before/after they were in the
+  league is genuinely absent (a real gap, not a misleading straight line
+  connecting seasons that never happened for them) — the distinction
+  issue #48's acceptance criteria specifically called out. Verified
+  against this league's real 6-season history: `total_trades_by_season`'s
+  per-season sum matches `edges["transaction_id"].n_unique()` exactly (no
+  double-counting), and one manager (`nolmacdonald`) alone accounted for
+  6 of 2022's 8 league-wide trades.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

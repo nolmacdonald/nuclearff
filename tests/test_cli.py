@@ -15,6 +15,7 @@ from nuclearff.cli import (
     EXIT_OK,
     EXIT_USAGE,
     _densify_trade_matrix,
+    _densify_trades_by_season,
     build_parser,
     main,
 )
@@ -1090,6 +1091,27 @@ def test_densify_trade_matrix_adds_zero_rows_and_columns_for_missing_managers():
     assert dense.filter(pl.col("manager") == "Donkeysride")["nolmacdonald"].item() == 2
 
 
+def test_densify_trades_by_season_fills_zero_only_for_rostered_seasons():
+    """Issue #48: a real 0 for a rostered non-trading season, no row otherwise."""
+    by_season = pl.DataFrame(
+        {"manager": ["nolmacdonald"], "season": [2025], "trades": [2]}
+    )
+    standings = pl.DataFrame(
+        {
+            "display_name": ["nolmacdonald", "nolmacdonald", "hyoga10"],
+            "season": [2025, 2026, 2026],
+        }
+    )
+
+    dense = _densify_trades_by_season(by_season, standings)
+    rows = {(r["manager"], r["season"]): r["trades"] for r in dense.to_dicts()}
+
+    assert rows[("nolmacdonald", 2025)] == 2
+    assert rows[("nolmacdonald", 2026)] == 0
+    assert rows[("hyoga10", 2026)] == 0
+    assert ("hyoga10", 2025) not in rows
+
+
 @responses.activate
 def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     tmp_path, capsys
@@ -1133,6 +1155,7 @@ def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     assert (out_dir / "trade_network.png").is_file()
     assert (out_dir / "trade_leaderboard.png").is_file()
     assert (out_dir / "manager_pair_leaderboard.png").is_file()
+    assert (out_dir / "trades_over_time.png").is_file()
 
 
 @responses.activate
@@ -1191,6 +1214,7 @@ def test_report_trades_falls_back_without_standings_table(tmp_path, capsys):
     assert (out_dir / "trade_network.png").is_file()
     assert (out_dir / "trade_leaderboard.png").is_file()
     assert (out_dir / "manager_pair_leaderboard.png").is_file()
+    assert (out_dir / "trades_over_time.png").is_file()
 
 
 def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):

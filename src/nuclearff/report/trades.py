@@ -510,3 +510,102 @@ def render_manager_pair_leaderboard(
     plt.close(fig)
     logger.info("Wrote %s (%d pairs)", out_path, len(labels))
     return out_path
+
+
+def render_trades_over_time(
+    by_season: pl.DataFrame,
+    totals: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Trades Over Time",
+) -> Path:
+    """Render a line chart of trade activity by season, one line per manager.
+
+    A manager's line is drawn only across the seasons they actually appear
+    in ``by_season`` -- a manager who joined the league partway through
+    simply starts later, rather than having earlier seasons connected to
+    real ones by a misleading straight line. A season the manager rostered
+    but didn't trade in should already be an explicit ``0`` row in
+    ``by_season`` (not an absent one), so it renders as a real dip in the
+    line rather than a gap.
+
+    Args:
+        by_season: One row per (manager, season), with ``manager``,
+            ``season``, and ``trades`` columns -- e.g.
+            :func:`nuclearff.sleeper.trades.trades_by_season`'s output,
+            densified by the caller against the seasons each manager
+            actually rostered (that function alone is only dense over
+            seasons with at least one trade -- its own docstring explains
+            why densifying isn't its job, needing ``sleeper_standings``,
+            not ``sleeper_transactions``).
+        totals: One row per season, with ``season`` and ``trades`` columns
+            -- e.g. :func:`nuclearff.sleeper.trades.total_trades_by_season`'s
+            output, the league-wide line.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering trades-over-time needs matplotlib, a core dependency: `uv sync`."
+        ) from exc
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    for manager in sorted(by_season["manager"].unique()):
+        series = by_season.filter(pl.col("manager") == manager).sort("season")
+        ax.plot(
+            series["season"],
+            series["trades"],
+            color="#4c72b0",
+            alpha=0.25,
+            linewidth=1,
+            marker="o",
+            markersize=3,
+        )
+
+    totals = totals.sort("season")
+    ax.plot(
+        totals["season"],
+        totals["trades"],
+        color="#c44e52",
+        linewidth=2.5,
+        marker="o",
+        markersize=5,
+        label="League total",
+    )
+
+    all_seasons = sorted(set(by_season["season"]) | set(totals["season"]))
+    if all_seasons:
+        ax.set_xticks(all_seasons)
+
+    ax.set_xlabel("Season")
+    ax.set_ylabel("Trades")
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    ax.legend(loc="upper left", frameon=False)
+    fig.tight_layout()
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info(
+        "Wrote %s (%d managers, %d seasons)",
+        out_path,
+        by_season["manager"].n_unique(),
+        len(all_seasons),
+    )
+    return out_path

@@ -321,6 +321,33 @@ def trades_by_season(edges: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def total_trades_by_season(edges: pl.DataFrame) -> pl.DataFrame:
+    """League-wide distinct trade count per season.
+
+    Unlike summing :func:`trades_by_season` or :func:`manager_trade_counts`
+    across managers, this counts each trade exactly once regardless of how
+    many managers it involved -- an N-way trade contributes multiple rows
+    to ``edges`` (one per manager pair), so counting *rows* per season
+    would multi-count it just as badly as summing per-manager totals would.
+
+    Args:
+        edges: Output of :func:`load_trades`.
+
+    Returns:
+        One row per season with at least one trade: ``season``, ``trades``
+        (distinct transaction count).
+    """
+    schema = {"season": pl.Int64, "trades": pl.UInt32}
+    if edges.height == 0:
+        return pl.DataFrame(schema=schema)
+
+    return (
+        edges.group_by("season")
+        .agg(pl.col("transaction_id").n_unique().alias("trades"))
+        .sort("season")
+    )
+
+
 def cumulative_trade_counts(edges: pl.DataFrame) -> pl.DataFrame:
     """Per-manager running trade total over time.
 

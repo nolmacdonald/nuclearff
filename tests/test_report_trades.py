@@ -2,8 +2,9 @@
 
 ``render_trades_by_manager`` (issue #42), ``render_trades_heatmap`` (issue
 #43), ``render_trade_network`` (issue #44), ``render_trade_leaderboard``
-(issue #46), and ``render_manager_pair_leaderboard`` (issue #47) exist so
-far; more render functions land here as issues #48-#51 merge.
+(issue #46), ``render_manager_pair_leaderboard`` (issue #47), and
+``render_trades_over_time`` (issue #48) exist so far; more render functions
+land here as issues #49-#51 merge.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from nuclearff.report.trades import (
     render_trade_network,
     render_trades_by_manager,
     render_trades_heatmap,
+    render_trades_over_time,
 )
 
 
@@ -212,5 +214,50 @@ def test_render_manager_pair_leaderboard_handles_no_pairs(tmp_path):
     )
 
     result = render_manager_pair_leaderboard(pairs, out_path)
+
+    assert result.is_file()
+
+
+def _by_season() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "manager": ["nolmacdonald", "nolmacdonald", "hyoga10"],
+            "season": [2025, 2026, 2026],
+            "trades": [1, 0, 1],
+        }
+    )
+
+
+def _totals() -> pl.DataFrame:
+    return pl.DataFrame({"season": [2025, 2026], "trades": [1, 1]})
+
+
+def test_render_trades_over_time_writes_a_png(tmp_path):
+    out_path = tmp_path / "trades_over_time.png"
+
+    result = render_trades_over_time(_by_season(), _totals(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_trades_over_time_handles_a_manager_with_a_gap_season(tmp_path):
+    """Issue #48: hyoga10 has no 2025 row (not rostered yet) -- must not crash."""
+    out_path = tmp_path / "trades_over_time.png"
+
+    result = render_trades_over_time(_by_season(), _totals(), out_path)
+
+    assert result.is_file()
+
+
+def test_render_trades_over_time_handles_a_single_season(tmp_path):
+    out_path = tmp_path / "trades_over_time.png"
+    by_season = pl.DataFrame(
+        {"manager": ["nolmacdonald"], "season": [2025], "trades": [1]}
+    )
+    totals = pl.DataFrame({"season": [2025], "trades": [1]})
+
+    result = render_trades_over_time(by_season, totals, out_path)
 
     assert result.is_file()
