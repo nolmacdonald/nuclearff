@@ -4,8 +4,9 @@
 #43), ``render_trade_network`` (issue #44), ``render_trade_leaderboard``
 (issue #46), ``render_manager_pair_leaderboard`` (issue #47),
 ``render_trades_over_time`` (issue #48), ``render_manager_season_heatmap``
-(issue #49), and ``render_cumulative_trades`` (issue #50) exist so far; more
-render functions land here as issue #51 merges.
+(issue #49), ``render_cumulative_trades`` (issue #50), and
+``render_trade_partner_diversity`` (issue #51) -- the full trade-network
+epic (issue #40).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from nuclearff.report.trades import (
     render_manager_season_heatmap,
     render_trade_leaderboard,
     render_trade_network,
+    render_trade_partner_diversity,
     render_trades_by_manager,
     render_trades_heatmap,
     render_trades_over_time,
@@ -344,5 +346,45 @@ def test_render_cumulative_trades_handles_a_single_manager(tmp_path):
     )
 
     result = render_cumulative_trades(cumulative, out_path)
+
+    assert result.is_file()
+
+
+def _diversity_counts() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "manager": ["nolmacdonald", "casitzmann", "bigTETONclimber", "thatbolb"],
+            "trades": [10, 4, 0, 0],
+            "unique_partners": [6, 2, 0, 0],
+        }
+    )
+
+
+def test_render_trade_partner_diversity_writes_a_png(tmp_path):
+    out_path = tmp_path / "trade_partner_diversity.png"
+
+    result = render_trade_partner_diversity(_diversity_counts(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_trade_partner_diversity_keeps_zero_trade_managers(tmp_path):
+    """Issue #51: a zero-trade manager still plots, at the origin, not dropped."""
+    out_path = tmp_path / "trade_partner_diversity.png"
+
+    result = render_trade_partner_diversity(_diversity_counts(), out_path)
+
+    assert result.is_file()
+
+
+def test_render_trade_partner_diversity_handles_a_single_manager(tmp_path):
+    out_path = tmp_path / "trade_partner_diversity.png"
+    counts = pl.DataFrame(
+        {"manager": ["nolmacdonald"], "trades": [1], "unique_partners": [1]}
+    )
+
+    result = render_trade_partner_diversity(counts, out_path)
 
     assert result.is_file()

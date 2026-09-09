@@ -775,6 +775,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         render_manager_season_heatmap,
         render_trade_leaderboard,
         render_trade_network,
+        render_trade_partner_diversity,
         render_trades_by_manager,
         render_trades_heatmap,
         render_trades_over_time,
@@ -888,6 +889,10 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     cumulative_path = render_cumulative_trades(
         cumulative_trade_counts(edges), out_dir / "cumulative_trades.png"
     )
+    diversity_path = render_trade_partner_diversity(
+        counts.select("manager", "trades", "unique_partners"),
+        out_dir / "trade_partner_diversity.png",
+    )
 
     print(f"Managers:                 {counts.height}")
     print(f"Trades by manager:        {out_path}")
@@ -898,6 +903,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     print(f"Manager x season heatmap: {season_heatmap_path}")
     print(f"Trades over time:         {over_time_path}")
     print(f"Cumulative trades:        {cumulative_path}")
+    print(f"Trade-partner diversity:  {diversity_path}")
     return EXIT_OK
 
 

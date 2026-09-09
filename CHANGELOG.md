@@ -323,6 +323,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   leader line still carries the series' real color. Verified against the
   real history: `nolmacdonald` is confirmed the league's all-time most
   prolific trader (14 of 22 trades), visibly taking the lead in late 2023.
+- `nuclearff.report.trades.render_trade_partner_diversity` (GitHub Issue 51,
+  split from Issue 40, completing the trade-network epic), wired into the
+  same `report trades` command: a scatter of total trades vs. unique trade
+  partners per manager, separating a manager who trades widely from one who
+  repeatedly trades with the same 1-2 people — a distinction the raw trade
+  count alone can't make. A real coordinate collision, not just a
+  synthetic edge case: 5 of this league's 15 real managers never traded,
+  so they'd all land on the exact same `(0, 0)` point. Grouped by the
+  `(trades, unique_partners)` coordinate before plotting, drawing one
+  marker with a comma-joined label per group rather than stacking
+  fully-overlapping duplicate points and labels, then reused Issue 50's
+  axes-fraction y-space label-declutter pass for groups that are close but
+  not identical. Verified against the real history: the zero-trade cluster
+  (`bigTETONclimber`, `bigshett`, `jwhitney0220`, `ruhbberduhcky`,
+  `thatbolb`) renders as one clean label at the origin, `nolmacdonald`
+  (14 trades, 7 partners) and `casitzmann` (9 trades, 6 partners) stand out
+  as the widest traders, and `ksavabi`/`macbuffet66`/`nawfeastdallas` (each
+  1 trade, 1 partner) visibly contrast with `hyoga10` (3 trades, 3
+  partners) — same raw trade count band, opposite diversity.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
