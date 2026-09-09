@@ -688,3 +688,112 @@ def render_manager_season_heatmap(
     plt.close(fig)
     logger.info("Wrote %s (%d managers, %d seasons)", out_path, n_managers, n_seasons)
     return out_path
+
+
+def render_cumulative_trades(
+    cumulative: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Cumulative Trades Over Time",
+) -> Path:
+    """Render a step chart of each manager's running trade total over time.
+
+    A step (not straight-line) chart: a manager's count is flat between
+    trades and jumps at the real ``created_at`` of each one, so the chart
+    doesn't imply gradual accrual between events that didn't happen. Lines
+    are labeled directly at their right end rather than in a legend --
+    with as many managers as a real league roster (15 for this league),
+    a legend box would either run off the figure or need its own overlap
+    fixes, the same class of problem already hit rendering
+    ``render_trades_heatmap`` (issue #43) and ``render_trade_leaderboard``
+    (issue #46). End-of-line labels are then decluttered in y -- several
+    managers in this league's real history stop trading early and
+    plateau at the same low count (1 or 2), which left their default
+    labels overlapping into unreadable merged text before this fix.
+
+    Args:
+        cumulative: One row per (manager, trade), e.g.
+            :func:`nuclearff.sleeper.trades.cumulative_trade_counts`'s
+            output -- ``manager``, ``created_at``, ``cumulative_trades``.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+        from matplotlib.transforms import blended_transform_factory
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering cumulative trades needs matplotlib, a core dependency: `uv sync`."
+        ) from exc
+
+    managers = sorted(cumulative["manager"].unique())
+    fig, ax = plt.subplots(figsize=(10, 6), layout="constrained")
+    cmap = plt.get_cmap("tab20")
+
+    ends = []
+    for i, manager in enumerate(managers):
+        series = cumulative.filter(pl.col("manager") == manager).sort("created_at")
+        color = cmap(i / max(len(managers) - 1, 1))
+        ax.step(
+            series["created_at"],
+            series["cumulative_trades"],
+            where="post",
+            color=color,
+            linewidth=1.5,
+        )
+        ends.append((manager, series["created_at"][-1], series["cumulative_trades"][-1], color))
+
+    ax.set_xlabel("Date")
+    ax.set_ylabel("Cumulative trades")
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    fig.autofmt_xdate()
+
+    # Declutter end-of-line labels along y (in axes-fraction space, so the
+    # minimum gap holds regardless of the data's actual range): several
+    # managers plateau at the same low count and would otherwise collide.
+    # A thin leader line (drawn by `annotate`'s own arrowprops, since xy and
+    # xytext live in different coordinate systems here) still points each
+    # label back at its real endpoint.
+    y0, y1 = ax.get_ylim()
+    min_gap = 0.045
+    placed = -1.0
+    for manager, x_end, y_end, color in sorted(ends, key=lambda e: e[2]):
+        frac = (y_end - y0) / (y1 - y0) if y1 > y0 else 0.0
+        frac = max(frac, placed + min_gap)
+        placed = frac
+        ax.annotate(
+            manager,
+            xy=(x_end, y_end),
+            xycoords="data",
+            xytext=(x_end, frac),
+            textcoords=blended_transform_factory(ax.transData, ax.transAxes),
+            va="center",
+            fontsize=8,
+            # Label text stays a fixed dark color regardless of the line's
+            # own color -- tab20 includes pale entries (e.g. light yellow)
+            # that are illegible on white. The leader line still carries
+            # the series' real color, so identity isn't lost.
+            color="#222222",
+            arrowprops=dict(arrowstyle="-", color=color, lw=0.6, alpha=0.6),
+        )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info("Wrote %s (%d managers)", out_path, len(managers))
+    return out_path
+
+
