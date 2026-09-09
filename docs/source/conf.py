@@ -55,6 +55,44 @@ autodoc_default_options = {
 }
 autosummary_generate = True
 
+
+def _skip_member_shadowing_its_own_submodule(app, what, name, obj, skip, options):  # noqa: ARG001
+    """Don't re-document a re-exported member on any page but its own.
+
+    A package that does ``from .vorp import vorp`` (true of
+    ``nuclearff.valuation``: the ``vorp`` submodule's own ``vorp()``
+    function) ends up with a member whose qualified name
+    (``nuclearff.valuation.vorp``) is identical to its home submodule's own
+    qualified name. The recursive autosummary already gives that submodule
+    its own dedicated page; documenting the re-exported function *again* on
+    the parent package's overview page registers the same name twice and
+    Sphinx raises "duplicate object description" (a hard error under
+    ``-W``). Skip the member everywhere except the page for its own home
+    module, where it belongs.
+    """
+    if skip:
+        return skip
+    home_module = getattr(obj, "__module__", None)
+    if not home_module or home_module.rsplit(".", 1)[-1] != name:
+        return skip
+    # ``ref_context["py:module"]`` is unset at this point in autodoc's own
+    # member-enumeration pass (verified empirically -- it's a domain
+    # cross-reference concept, populated later than skip-member fires), so
+    # use the docname of the page actually being built instead: it's
+    # ``api/generated/<home_module>`` on the member's own dedicated page and
+    # something else (e.g. the parent package's overview page) everywhere
+    # this collision matters. Empty here means an early autosummary-table
+    # analysis pass, not a real page -- leave those alone.
+    docname = app.env.docname
+    if docname and not docname.endswith(home_module):
+        return True
+    return skip
+
+
+def setup(app):
+    app.connect("autodoc-skip-member", _skip_member_shadowing_its_own_submodule)
+
+
 # -- Intersphinx mapping ------------------------------------------------------
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
