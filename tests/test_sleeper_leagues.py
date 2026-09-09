@@ -19,6 +19,7 @@ from nuclearff.sleeper.leagues import (
     TABLE_NAME,
     league_config_rows,
     league_rows,
+    league_type_name,
     walk_league_chain,
     write_league_tables,
 )
@@ -151,6 +152,22 @@ def test_walk_league_chain_respects_max_seasons(
     leagues = walk_league_chain(client, LEAGUE_ID, max_seasons=1)
 
     assert len(leagues) == 1
+
+
+# --- league_type_name -----------------------------------------------------
+
+
+def test_league_type_name_trusts_type_alone_not_last_chopped_leg():
+    """Issue #77: a real type==3 league can lack `last_chopped_leg` (hasn't
+    chopped anyone yet) and must still resolve to "chopped", unlike the
+    stricter `is_chopped_league` check used for standings resolution."""
+    payload = {"league_id": "1", "settings": {"type": 3}}
+
+    assert league_type_name(payload) == "chopped"
+
+
+def test_league_type_name_handles_missing_settings():
+    assert league_type_name({"league_id": "1"}) == "unknown"
 
 
 # --- league_rows ---------------------------------------------------------
