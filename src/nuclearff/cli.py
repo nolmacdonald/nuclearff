@@ -698,6 +698,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     """
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import (
+        render_trade_leaderboard,
         render_trade_network,
         render_trades_by_manager,
         render_trades_heatmap,
@@ -734,10 +735,30 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         )
         all_managers = counts["manager"].to_list()
 
+    # Densified over every column manager_trade_counts produces, not just
+    # `trades` -- the leaderboard table needs unique_partners/
+    # most_frequent_partner/trades_with_partner too. A zero-trade manager
+    # never appears in the raw output at all, so those three columns are
+    # null after the join for them; render_trade_leaderboard displays that
+    # as "—", not as an error.
     counts = (
         pl.DataFrame({"manager": all_managers})
-        .join(counts.select("manager", "trades"), on="manager", how="left")
-        .with_columns(pl.col("trades").fill_null(0))
+        .join(
+            counts.select(
+                "manager",
+                "trades",
+                "unique_partners",
+                "most_frequent_partner",
+                "trades_with_partner",
+            ),
+            on="manager",
+            how="left",
+        )
+        .with_columns(
+            pl.col("trades").fill_null(0),
+            pl.col("unique_partners").fill_null(0),
+            pl.col("trades_with_partner").fill_null(0),
+        )
     )
 
     out_dir = (
@@ -745,16 +766,24 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         if args.out_dir
         else config.paths.artifacts_dir / f"{args.league_id}-trades"
     )
-    out_path = render_trades_by_manager(counts, out_dir / "trades_by_manager.png")
+    out_path = render_trades_by_manager(
+        counts.select("manager", "trades"), out_dir / "trades_by_manager.png"
+    )
 
     matrix = _densify_trade_matrix(pairwise_trade_matrix(edges), all_managers)
     heatmap_path = render_trades_heatmap(matrix, out_dir / "trades_heatmap.png")
-    network_path = render_trade_network(counts, matrix, out_dir / "trade_network.png")
+    network_path = render_trade_network(
+        counts.select("manager", "trades"), matrix, out_dir / "trade_network.png"
+    )
+    leaderboard_path = render_trade_leaderboard(
+        counts, out_dir / "trade_leaderboard.png"
+    )
 
     print(f"Managers:          {counts.height}")
     print(f"Trades by manager: {out_path}")
     print(f"Trades heatmap:    {heatmap_path}")
     print(f"Trade network:     {network_path}")
+    print(f"Trade leaderboard: {leaderboard_path}")
     return EXIT_OK
 
 

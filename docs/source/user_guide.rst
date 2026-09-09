@@ -455,8 +455,8 @@ Trade network analysis
 
 ``report trades`` renders the manager trade network from stored trade
 history — currently a bar chart of total trades per manager, a manager-pair
-heatmap, and a node-link network graph, with others landing as later issues
-on top of the same command:
+heatmap, a node-link network graph, and a leaderboard table, with others
+landing as later issues on top of the same command:
 
 .. code-block:: text
 
@@ -465,6 +465,7 @@ on top of the same command:
    Trades by manager: ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
    Trades heatmap:    ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
    Trade network:     ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
+   Trade leaderboard: ./demo/data/artifacts/1367225133634191360-trades/trade_leaderboard.png
 
 That's this league's real trade history: 22 completed trades since 2021,
 across the 15 managers who have ever held a roster in the league.
@@ -515,6 +516,14 @@ isolated node rather than being silently dropped. With only 22 trades
 across 15 managers, the graph is genuinely sparse — several managers never
 connect to the rest of the league at all. That is this league's real
 trading activity, not a rendering bug, and the chart says so directly.
+
+The leaderboard table is one reference row per manager — Trades, Unique
+Partners, Most Frequent Partner, Trades With Partner — sorted by trade
+count, most active first. It has no circle-cropped headshots unlike
+``nuclearff``'s player tables: a Sleeper manager has no headshot URL
+anywhere in this project's data model, only an avatar id nothing currently
+resolves. A zero-trade manager still gets a full row rather than being
+omitted, with ``—`` in place of a partner that doesn't exist.
 
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-trades/``.
