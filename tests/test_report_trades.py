@@ -2,16 +2,20 @@
 
 ``render_trades_by_manager`` (issue #42), ``render_trades_heatmap`` (issue
 #43), ``render_trade_network`` (issue #44), ``render_trade_leaderboard``
-(issue #46), ``render_manager_pair_leaderboard`` (issue #47), and
-``render_trades_over_time`` (issue #48) exist so far; more render functions
-land here as issues #49-#51 merge.
+(issue #46), ``render_manager_pair_leaderboard`` (issue #47),
+``render_trades_over_time`` (issue #48), ``render_manager_season_heatmap``
+(issue #49), and ``render_cumulative_trades`` (issue #50) exist so far; more
+render functions land here as issue #51 merges.
 """
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import polars as pl
 
 from nuclearff.report.trades import (
+    render_cumulative_trades,
     render_manager_pair_leaderboard,
     render_manager_season_heatmap,
     render_trade_leaderboard,
@@ -298,5 +302,47 @@ def test_render_manager_season_heatmap_handles_a_single_manager_and_season(tmp_p
     matrix = pl.DataFrame({"manager": ["nolmacdonald"], "2025": [0]})
 
     result = render_manager_season_heatmap(matrix, out_path)
+
+    assert result.is_file()
+
+
+def _cumulative() -> pl.DataFrame:
+    start = datetime(2025, 9, 1)
+    return pl.DataFrame(
+        {
+            "manager": ["nolmacdonald", "nolmacdonald", "Donkeysride"],
+            "transaction_id": ["1", "2", "3"],
+            "created_at": [
+                start,
+                start + timedelta(days=10),
+                start + timedelta(days=5),
+            ],
+            "cumulative_trades": [1, 2, 1],
+        }
+    )
+
+
+def test_render_cumulative_trades_writes_a_png(tmp_path):
+    out_path = tmp_path / "cumulative_trades.png"
+
+    result = render_cumulative_trades(_cumulative(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_cumulative_trades_handles_a_single_manager(tmp_path):
+    out_path = tmp_path / "cumulative_trades.png"
+    cumulative = pl.DataFrame(
+        {
+            "manager": ["nolmacdonald"],
+            "transaction_id": ["1"],
+            "created_at": [datetime(2025, 9, 1)],
+            "cumulative_trades": [1],
+        }
+    )
+
+    result = render_cumulative_trades(cumulative, out_path)
 
     assert result.is_file()

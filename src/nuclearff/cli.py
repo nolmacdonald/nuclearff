@@ -770,6 +770,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     """
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import (
+        render_cumulative_trades,
         render_manager_pair_leaderboard,
         render_manager_season_heatmap,
         render_trade_leaderboard,
@@ -779,6 +780,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         render_trades_over_time,
     )
     from nuclearff.sleeper.trades import (
+        cumulative_trade_counts,
         load_trades,
         manager_trade_counts,
         pairwise_trade_matrix,
@@ -883,6 +885,10 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         season_matrix, out_dir / "manager_season_heatmap.png"
     )
 
+    cumulative_path = render_cumulative_trades(
+        cumulative_trade_counts(edges), out_dir / "cumulative_trades.png"
+    )
+
     print(f"Managers:                 {counts.height}")
     print(f"Trades by manager:        {out_path}")
     print(f"Trades heatmap:           {heatmap_path}")
@@ -891,6 +897,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     print(f"Manager-pair leaderboard: {pair_leaderboard_path}")
     print(f"Manager x season heatmap: {season_heatmap_path}")
     print(f"Trades over time:         {over_time_path}")
+    print(f"Cumulative trades:        {cumulative_path}")
     return EXIT_OK
 
 

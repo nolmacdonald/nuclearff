@@ -301,6 +301,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renders as the single darkest cell on the grid, and every non-participating
   manager (e.g. `bigTETONclimber`, `jwhitney0220`) renders as an all-zero row
   rather than a gap.
+- `nuclearff.report.trades.render_cumulative_trades` (GitHub Issue 50, split
+  from Issue 40), wired into the same `report trades` command: a step chart
+  (not a straight-line one, so a manager's count doesn't appear to accrue
+  gradually between real trade events) of each manager's running trade
+  total over time, from `cumulative_trade_counts` (Issue 41). Lines are
+  labeled directly at their end rather than in a legend, since a legend for
+  15 real managers would either overflow the figure or need its own overlap
+  fix. Rendering against this league's real 22-trade history surfaced
+  exactly that overlap problem anyway: several managers plateau at the same
+  low count (1-2 trades) and their default end-of-line label positions
+  collided into unreadable merged text (e.g. `aperry151` and
+  `nolanmacdonald` overlapping into "aperry151donald"). Fixed with a label
+  declutter pass in axes-fraction y-space (so the minimum gap holds
+  regardless of the data's actual range) plus a thin leader line — drawn by
+  `annotate`'s own `arrowprops`, since a label's real data point and its
+  decluttered text position live in different coordinate systems — back to
+  each real endpoint. Also switched label text to a fixed dark color rather
+  than the line's own color, since `tab20` (the color cycle used for 15
+  distinguishable lines) includes pale entries illegible on white; the
+  leader line still carries the series' real color. Verified against the
+  real history: `nolmacdonald` is confirmed the league's all-time most
+  prolific trader (14 of 22 trades), visibly taking the lead in late 2023.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
