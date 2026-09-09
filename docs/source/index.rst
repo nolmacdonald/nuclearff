@@ -33,6 +33,13 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
 
       What the Sleeper API exposes, and how to fetch it yourself in Python.
 
+   .. grid-item-card:: League Trade History
+      :link: league_trade_history
+      :link-type: doc
+
+      Ten trade-history visualizations, from a single trade bar chart to a
+      chord diagram, all from one CLI command.
+
    .. grid-item-card:: API Reference
       :link: api/index
       :link-type: doc
@@ -46,6 +53,7 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
    getting_started
    user_guide
    sleeper_api_tutorial
+   league_trade_history
    api/index
    changelog
    contributing

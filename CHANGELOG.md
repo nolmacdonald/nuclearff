@@ -367,6 +367,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the largest node with the thickest edges), and node positions measured
   from the rendered PNG sit at a consistent radius from center (a real
   circle, not skewed by the title's layout margin).
+- `docs/source/league_trade_history.rst`, a dedicated page for all ten
+  `report trades` visualizations (issues #42-#51, #45 — the completed
+  trade-network epic), added to `index.rst`'s toctree and landing card.
+  Split out of `user_guide.rst`'s own "Trade network analysis" section
+  (which shrinks to a one-line pointer at this page) once that section
+  grew to cover all ten charts — the same "grows past a single section,
+  gets its own page" pattern `sleeper_api_tutorial.rst` already set in
+  2026-09-03 (see `decisions.md`). Every real-data detail already verified
+  while building each visualization (`nolmacdonald`'s real 14-trade,
+  7-partner lead; the real 3-team trade among `casitzmann`/`nolmacdonald`/
+  `nolanmacdonald`; the 5 real zero-trade managers; the real 13-edge,
+  15-node sparse network) is carried into this page rather than
+  re-derived, and a real `uv run sphinx-build -b html docs/source
+  docs/_build/html -W` build is clean (0 warnings).
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
