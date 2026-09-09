@@ -416,5 +416,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test to close the coverage gap on this path that let it through.
 - Removed a no-op `.rename({"player_id": "player_id"})` left over in
   `nuclearff.pipeline.auction_board.build_auction_board` (GitHub Issue 38).
+- Fixed the Sphinx docs build, broken since the project's first commit but
+  never caught because `docs.yml` only triggers on `main`/PRs into `main`,
+  and nothing had ever been merged to `main` until now. Two pre-existing
+  issues surfaced once `-W` (warnings-as-errors) actually ran end to end:
+  `nuclearff.backtest.metrics.tier_accuracy`'s docstring had a `Returns`
+  block wrapping a multi-line double-backtick literal, which docutils
+  parses as "Inline literal start-string without end-string" — reworded to
+  plain prose. Separately, `nuclearff.valuation`'s `from .vorp import vorp`
+  re-export gives the `vorp()` function the exact same qualified name as its
+  own home module (`nuclearff.valuation.vorp`), so the package overview page
+  and the submodule's own dedicated page both registered an object under
+  that identical name — a real Sphinx footgun for any package that re-
+  exports a same-named callable from a same-named submodule. Fixed with an
+  `autodoc-skip-member` hook in `conf.py` that skips a member from any page
+  but its own home module's, rather than renaming the live module or
+  function (both used elsewhere, including a logger name in
+  `tests/test_valuation_vorp.py`).
 
 [Unreleased]: https://github.com/nolmacdonald/nuclearff/commits/main

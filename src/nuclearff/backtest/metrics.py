@@ -212,10 +212,10 @@ def tier_accuracy(
         actual_tiers: Actual tier per player, same order as ``predicted_tiers``.
 
     Returns:
-        ``{"exact_match_rate": fraction where predicted_tiers[i] ==
-        actual_tiers[i], "within_one_rate": fraction where
-        abs(predicted_tiers[i] - actual_tiers[i]) <= 1}``. Both are
-        ``float("nan")`` if the sequences are empty.
+        A dict with two keys: ``exact_match_rate`` (fraction of players where
+        the predicted and actual tier match exactly) and ``within_one_rate``
+        (fraction where they differ by at most 1). Both are ``float("nan")``
+        if the sequences are empty.
 
     Raises:
         ValueError: If ``predicted_tiers`` and ``actual_tiers`` differ in
