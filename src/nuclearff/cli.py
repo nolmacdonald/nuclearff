@@ -770,6 +770,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     """
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import (
+        render_chord_diagram,
         render_cumulative_trades,
         render_manager_pair_leaderboard,
         render_manager_season_heatmap,
@@ -893,6 +894,9 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         counts.select("manager", "trades", "unique_partners"),
         out_dir / "trade_partner_diversity.png",
     )
+    chord_path = render_chord_diagram(
+        counts.select("manager", "trades"), matrix, out_dir / "chord_diagram.png"
+    )
 
     print(f"Managers:                 {counts.height}")
     print(f"Trades by manager:        {out_path}")
@@ -904,6 +908,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     print(f"Trades over time:         {over_time_path}")
     print(f"Cumulative trades:        {cumulative_path}")
     print(f"Trade-partner diversity:  {diversity_path}")
+    print(f"Chord diagram:            {chord_path}")
     return EXIT_OK
 
 

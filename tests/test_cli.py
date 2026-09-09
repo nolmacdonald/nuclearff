@@ -1176,6 +1176,7 @@ def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     assert (out_dir / "manager_season_heatmap.png").is_file()
     assert (out_dir / "cumulative_trades.png").is_file()
     assert (out_dir / "trade_partner_diversity.png").is_file()
+    assert (out_dir / "chord_diagram.png").is_file()
 
 
 @responses.activate
@@ -1238,6 +1239,7 @@ def test_report_trades_falls_back_without_standings_table(tmp_path, capsys):
     assert (out_dir / "manager_season_heatmap.png").is_file()
     assert (out_dir / "cumulative_trades.png").is_file()
     assert (out_dir / "trade_partner_diversity.png").is_file()
+    assert (out_dir / "chord_diagram.png").is_file()
 
 
 def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):

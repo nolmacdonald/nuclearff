@@ -4,9 +4,9 @@
 #43), ``render_trade_network`` (issue #44), ``render_trade_leaderboard``
 (issue #46), ``render_manager_pair_leaderboard`` (issue #47),
 ``render_trades_over_time`` (issue #48), ``render_manager_season_heatmap``
-(issue #49), ``render_cumulative_trades`` (issue #50), and
-``render_trade_partner_diversity`` (issue #51) -- the full trade-network
-epic (issue #40).
+(issue #49), ``render_cumulative_trades`` (issue #50),
+``render_trade_partner_diversity`` (issue #51), and ``render_chord_diagram``
+(issue #45) -- the full trade-network epic (issue #40).
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import polars as pl
 
 from nuclearff.report.trades import (
+    render_chord_diagram,
     render_cumulative_trades,
     render_manager_pair_leaderboard,
     render_manager_season_heatmap,
@@ -142,6 +143,35 @@ def test_render_trade_network_handles_a_single_manager(tmp_path):
     matrix = pl.DataFrame({"manager": ["nolmacdonald"], "nolmacdonald": [0]})
 
     result = render_trade_network(counts, matrix, out_path)
+
+    assert result.is_file()
+
+
+def test_render_chord_diagram_writes_a_png(tmp_path):
+    out_path = tmp_path / "chord_diagram.png"
+
+    result = render_chord_diagram(_counts(), _matrix(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_chord_diagram_handles_a_zero_trade_manager(tmp_path):
+    """Issue #45: a 0-trade manager must still appear, as an isolated point."""
+    out_path = tmp_path / "chord_diagram.png"
+
+    result = render_chord_diagram(_counts(), _matrix(), out_path)
+
+    assert result.is_file()
+
+
+def test_render_chord_diagram_handles_a_single_manager(tmp_path):
+    out_path = tmp_path / "chord_diagram.png"
+    counts = pl.DataFrame({"manager": ["nolmacdonald"], "trades": [0]})
+    matrix = pl.DataFrame({"manager": ["nolmacdonald"], "nolmacdonald": [0]})
+
+    result = render_chord_diagram(counts, matrix, out_path)
 
     assert result.is_file()
 
