@@ -798,3 +798,110 @@ def render_cumulative_trades(
     plt.close(fig)
     logger.info("Wrote %s (%d managers)", out_path, len(managers))
     return out_path
+
+
+def render_trade_partner_diversity(
+    counts: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Trade Partner Diversity",
+) -> Path:
+    """Render a scatter of total trades vs. unique trade partners.
+
+    Separates a manager who trades with everyone from one who repeatedly
+    trades with the same 1-2 people -- a distinction the raw trade count
+    alone can't make.
+
+    Args:
+        counts: One row per manager, with ``manager``, ``trades``, and
+            ``unique_partners`` columns -- e.g. the CLI's densified
+            :func:`nuclearff.sleeper.trades.manager_trade_counts` output
+            (dense over the full manager roster, so a manager with zero
+            trades appears at the origin rather than being dropped).
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+        from matplotlib.transforms import blended_transform_factory
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering trade-partner diversity needs matplotlib, a core "
+            "dependency: `uv sync`."
+        ) from exc
+
+    # Every zero-trade manager lands on the exact same point (0, 0) -- a
+    # real collision for this league (5 of 15 managers never traded), not
+    # just a synthetic edge case. Group by the (trades, unique_partners)
+    # coordinate first and draw one marker with a joined label per group,
+    # rather than stacking fully-overlapping duplicate points and labels.
+    groups = (
+        counts.group_by(["trades", "unique_partners"], maintain_order=True)
+        .agg(pl.col("manager").sort())
+        .sort(["trades", "unique_partners"])
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 8), layout="constrained")
+    xs = groups["trades"].to_list()
+    ys = groups["unique_partners"].to_list()
+    ax.scatter(xs, ys, color="#4c72b0", s=60, zorder=2)
+
+    ax.set_xlabel("Total trades")
+    ax.set_ylabel("Unique trade partners")
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    ax.set_xlim(left=-0.5)
+    ax.set_ylim(bottom=-0.5)
+    ax.grid(True, alpha=0.3, zorder=1)
+
+    # Declutter labels along y (axes-fraction space, so the minimum gap
+    # holds regardless of the data's range) the same way
+    # render_cumulative_trades (issue #50) does -- this scatter's discrete,
+    # small integer axes produce exactly the same kind of coordinate
+    # collisions a naive per-point label would overlap on.
+    y0, y1 = ax.get_ylim()
+    min_gap = 0.05
+    placed = -1.0
+    points = sorted(
+        zip(xs, ys, groups["manager"].to_list(), strict=True),
+        key=lambda point: point[1],
+    )
+    for x, y, managers in points:
+        label = ", ".join(managers)
+        frac = (y - y0) / (y1 - y0) if y1 > y0 else 0.0
+        frac = max(frac, placed + min_gap)
+        placed = frac
+        ax.annotate(
+            label,
+            xy=(x, y),
+            xycoords="data",
+            xytext=(x, frac),
+            textcoords=blended_transform_factory(ax.transData, ax.transAxes),
+            va="center",
+            fontsize=8,
+            color="#222222",
+            arrowprops={
+                "arrowstyle": "-",
+                "color": "#4c72b0",
+                "lw": 0.6,
+                "alpha": 0.6,
+            },
+        )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info("Wrote %s (%d managers)", out_path, counts.height)
+    return out_path
