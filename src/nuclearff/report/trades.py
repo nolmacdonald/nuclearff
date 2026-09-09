@@ -609,3 +609,82 @@ def render_trades_over_time(
         len(all_seasons),
     )
     return out_path
+
+
+def render_manager_season_heatmap(
+    matrix: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Manager Activity by Season",
+) -> Path:
+    """Render a heatmap of trade counts per manager per season.
+
+    Args:
+        matrix: One ``manager`` column plus one column per season (as a
+            string column name, e.g. ``"2021"``) -- e.g. the CLI's
+            ``_densify_manager_season_matrix`` output, dense over every
+            manager x season combination in the league's real history.
+            :func:`nuclearff.sleeper.trades.trades_by_season` alone is only
+            dense over combinations with at least one trade -- see its own
+            docstring for why densifying isn't its job.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering the manager-season heatmap needs matplotlib, a "
+            "core dependency: `uv sync`."
+        ) from exc
+
+    managers = matrix["manager"].to_list()
+    seasons = [c for c in matrix.columns if c != "manager"]
+    n_managers = len(managers)
+    n_seasons = len(seasons)
+    values = (
+        matrix.select(seasons).to_numpy() if seasons else matrix.select([]).to_numpy()
+    )
+    max_value = int(values.max()) if values.size else 0
+
+    # Same lessons already learned rendering render_trades_heatmap (issue
+    # #43): constrained layout, not tight_layout(), for a colorbar +
+    # equal-aspect imshow; and a floor under both dimensions so a small
+    # roster/short history doesn't leave too little room for labels and the
+    # colorbar together.
+    width = max(0.7 * n_seasons + 3, 6)
+    height = max(0.5 * n_managers + 2, 6)
+    fig, ax = plt.subplots(figsize=(width, height), layout="constrained")
+    im = ax.imshow(values, cmap="Blues", vmin=0)
+    ax.set_xticks(range(n_seasons))
+    ax.set_xticklabels(seasons)
+    ax.set_yticks(range(n_managers))
+    ax.set_yticklabels(managers)
+
+    for i in range(n_managers):
+        for j in range(n_seasons):
+            value = int(values[i, j])
+            color = "white" if max_value and value > max_value / 2 else "black"
+            ax.text(j, i, str(value), ha="center", va="center", color=color, fontsize=9)
+
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    fig.colorbar(im, ax=ax, label="Trades")
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info("Wrote %s (%d managers, %d seasons)", out_path, n_managers, n_seasons)
+    return out_path
