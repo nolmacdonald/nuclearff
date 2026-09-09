@@ -197,6 +197,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roster (a manager who never traded) is deliberately out of scope — that
   needs `sleeper_standings`, a different table; callers needing a
   zero-trade manager to still appear join against that roster themselves.
+- `nuclearff report trades <league_id>` (GitHub Issue 42, split from Issue
+  40) and `nuclearff.report.trades.render_trades_by_manager`: a horizontal
+  bar chart of total trades per manager, the first of the trade-network
+  visualizations built on issue #41's data prep. The CLI command joins
+  `manager_trade_counts` against `sleeper_standings`' full manager roster
+  so a manager with zero trades still appears at `0` rather than being
+  silently absent (falls back to trade participants only, with a warning,
+  if `sleeper_standings` hasn't been populated yet). Managers are sorted
+  ascending into the chart so the highest trade count renders at the top,
+  ties broken alphabetically for a deterministic image.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

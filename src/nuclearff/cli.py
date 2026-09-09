@@ -644,6 +644,70 @@ def _cmd_report_draft_board(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_trades(args: argparse.Namespace) -> int:
+    """Render the manager trade network from stored trade history.
+
+    Reads ``sleeper_transactions`` (written by ``sleeper fetch-league
+    --transactions``) for trade data. Also reads ``sleeper_standings``
+    (written by ``--standings``) for the full manager roster, so a manager
+    with zero trades still appears rather than being silently absent — if
+    that table doesn't exist yet, falls back to only the managers who
+    appear in trade data, with a warning.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``out_dir``.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_trades_by_manager
+    from nuclearff.sleeper.trades import load_trades, manager_trade_counts
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    try:
+        edges = load_trades(db_path)
+    except StorageError:
+        print(
+            "No sleeper_transactions table found. Run "
+            "`nuclearff sleeper fetch-league --transactions` first."
+        )
+        return EXIT_ERROR
+
+    counts = manager_trade_counts(edges)
+
+    try:
+        standings = read_table(db_path, "sleeper_standings")
+        all_managers = sorted(
+            {name for name in standings["display_name"].to_list() if name}
+        )
+    except StorageError:
+        logger.warning(
+            "sleeper_standings not found — a manager with zero trades won't "
+            "appear. Run `sleeper fetch-league --standings` for the full roster."
+        )
+        all_managers = counts["manager"].to_list()
+
+    counts = (
+        pl.DataFrame({"manager": all_managers})
+        .join(counts.select("manager", "trades"), on="manager", how="left")
+        .with_columns(pl.col("trades").fill_null(0))
+    )
+
+    out_dir = (
+        Path(args.out_dir)
+        if args.out_dir
+        else config.paths.artifacts_dir / f"{args.league_id}-trades"
+    )
+    out_path = render_trades_by_manager(counts, out_dir / "trades_by_manager.png")
+
+    print(f"Managers:          {counts.height}")
+    print(f"Trades by manager: {out_path}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -906,6 +970,18 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     draft_board.set_defaults(func=_cmd_report_draft_board)
+
+    trades = report_commands.add_parser(
+        "trades",
+        help="Render the manager trade network from stored trade history",
+    )
+    trades.add_argument("league_id", help="Sleeper league identifier")
+    trades.add_argument(
+        "--out-dir",
+        default=None,
+        help="Output directory (default: <artifacts>/<league_id>-trades)",
+    )
+    trades.set_defaults(func=_cmd_report_trades)
 
     return parser
 
