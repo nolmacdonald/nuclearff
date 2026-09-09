@@ -239,6 +239,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`1/sqrt(n)`) is tuned for single-character labels, not real manager
   names — every label in the connected cluster overlapped its neighbors
   until `k` was widened to `3/sqrt(n)`.
+- `nuclearff.report.trades.render_trade_leaderboard` (GitHub Issue 46,
+  split from Issue 40), wired into the same `report trades` command: a
+  `plottable` PNG table, one row per manager (Trades, Unique Partners,
+  Most Frequent Partner, Trades With Partner), sorted by trade count. No
+  circle-cropped headshots like `report/tables.py`'s player tables — a
+  Sleeper manager has no headshot URL anywhere in this project's data
+  model, only an unwired avatar id, out of scope here rather than an
+  oversight. The CLI's manager-roster densification (previously narrowed
+  to just `manager`/`trades` for the bar chart) now keeps all 5
+  `manager_trade_counts` columns, so a zero-trade manager still gets a
+  full row with `"—"` for a partner that doesn't exist, not a crash or a
+  missing row. A real column-width bug surfaced rendering against this
+  league's real 15-manager roster: `plottable` doesn't wrap or shrink a
+  header wider than its column, so "UNIQUE PARTNERS"/"MOST FREQUENT
+  PARTNER"/"TRADES WITH PARTNER" (far wider than `report/tables.py`'s
+  short abbreviations like "PTS") overflowed into neighboring columns
+  until every column was widened to fit its own header text.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

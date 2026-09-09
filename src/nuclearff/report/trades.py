@@ -2,10 +2,11 @@
 
 ``matplotlib`` is imported lazily inside each render function, the same
 posture :mod:`nuclearff.report.tables` uses, so importing ``nuclearff.report``
-doesn't require it at module load time. Most functions here need no ``dev``
-extra at all, since ``matplotlib`` is a core dependency (unlike ``plottable``)
--- the exception is :func:`render_trade_network`, which also needs
-``networkx``, a genuine ``dev`` extra.
+doesn't require it at module load time. ``render_trades_by_manager`` and
+``render_trades_heatmap`` need no ``dev`` extra at all, since ``matplotlib``
+is a core dependency (unlike ``plottable``) -- ``render_trade_network`` needs
+``networkx`` and ``render_trade_leaderboard`` needs ``plottable``, both
+genuine ``dev`` extras.
 """
 
 from __future__ import annotations
@@ -290,4 +291,149 @@ def render_trade_network(
         len(managers),
         graph.number_of_edges(),
     )
+    return out_path
+
+
+def render_trade_leaderboard(
+    counts: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Trade Leaderboard",
+) -> Path:
+    """Render a single reference table of every manager's trade activity.
+
+    Follows :mod:`nuclearff.report.tables`' PNG-table conventions (styled
+    columns, ``plottable``, a left-aligned bold title) but without
+    circle-cropped headshots: unlike a player, a Sleeper manager has no
+    headshot URL anywhere in this project's data model, only an avatar id
+    that nothing currently persists
+    (:func:`nuclearff.sleeper.client.SleeperClient.avatar_url` exists but is
+    unwired) -- out of scope here, not an oversight.
+
+    Args:
+        counts: One row per manager, with ``manager``, ``trades``,
+            ``unique_partners``, ``most_frequent_partner``, and
+            ``trades_with_partner`` columns -- e.g.
+            :func:`nuclearff.sleeper.trades.manager_trade_counts`'s output,
+            densified against the full manager roster so a zero-trade
+            manager still gets a row. That function alone never produces a
+            zero-trade row at all, so ``most_frequent_partner`` is expected
+            to be null for one -- rendered as ``"—"``, not an error.
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If the ``dev`` extra (``plottable``,
+            ``matplotlib``) is not installed.
+    """
+    try:
+        import matplotlib
+        import pandas as pd
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+        from plottable import ColumnDefinition, Table
+    except ImportError as exc:  # pragma: no cover - depends on install extras
+        raise RenderingUnavailableError(
+            "Rendering the trade leaderboard needs the `dev` extra "
+            "(plottable, matplotlib): `uv sync --extra dev`."
+        ) from exc
+
+    ordered = counts.sort(["trades", "manager"], descending=[True, False])
+    # Built from dicts, not `Polars.to_pandas()` -- see report/tables.py's
+    # own comment on why (avoids a pyarrow dependency this project doesn't
+    # otherwise need).
+    frame = pd.DataFrame(ordered.to_dicts())
+    frame["most_frequent_partner"] = frame["most_frequent_partner"].fillna("—")
+    # A pre-formatted display string, not left as a mixed int/"—" column:
+    # plottable's numeric `formatter` option would raise trying to format
+    # the dash. A manager with no partner has no trades-with-partner count
+    # to show either, regardless of what densification filled the raw
+    # column with.
+    frame["trades_with_partner_display"] = [
+        "—" if partner == "—" else str(int(value))
+        for partner, value in zip(
+            frame["most_frequent_partner"], frame["trades_with_partner"], strict=True
+        )
+    ]
+
+    frame.index = pd.RangeIndex(1, len(frame) + 1)
+    frame.index.name = "#"
+
+    # Widths sized to fit each column's header text, not just its data --
+    # plottable doesn't wrap or shrink a title that's wider than the column,
+    # it just overflows into its neighbor. "UNIQUE PARTNERS", "MOST FREQUENT
+    # PARTNER", and "TRADES WITH PARTNER" are far wider than report/tables.py's
+    # short abbreviations ("PTS", "VORP"), and the first pass rendered against
+    # this league's real 15-manager roster showed exactly that overlap.
+    column_definitions = [
+        ColumnDefinition(
+            name="manager",
+            title="MANAGER",
+            width=2.2,
+            textprops={"ha": "left", "weight": "bold", "fontsize": 11},
+        ),
+        ColumnDefinition(
+            name="trades",
+            title="TRADES",
+            width=1.3,
+            textprops={"ha": "center", "fontsize": 11, "weight": "bold"},
+            border="left",
+        ),
+        ColumnDefinition(
+            name="unique_partners",
+            title="UNIQUE PARTNERS",
+            width=1.8,
+            textprops={"ha": "center", "fontsize": 10},
+        ),
+        ColumnDefinition(
+            name="most_frequent_partner",
+            title="MOST FREQUENT PARTNER",
+            width=2.6,
+            textprops={"ha": "left", "fontsize": 10, "color": "#444444"},
+        ),
+        ColumnDefinition(
+            name="trades_with_partner_display",
+            title="TRADES WITH PARTNER",
+            width=2.2,
+            textprops={"ha": "center", "fontsize": 10},
+        ),
+    ]
+
+    fig, ax = plt.subplots(figsize=(14, 0.5 * len(frame) + 2.2))
+    Table(
+        frame[[c.name for c in column_definitions]],
+        column_definitions=column_definitions,
+        textprops={"fontsize": 10, "ha": "center"},
+        row_dividers=True,
+        row_divider_kw={"linewidth": 0.5, "color": "#E3E3E3"},
+        col_label_divider_kw={"linewidth": 1.5, "color": "black"},
+        column_border_kw={"linewidth": 1.5, "color": "black"},
+        ax=ax,
+    )
+
+    ax.set_title(title, loc="left", fontsize=17, weight="bold", pad=30)
+    ax.text(
+        0,
+        1.006,
+        '"—" marks a manager who has not made a trade yet.',
+        transform=ax.transAxes,
+        fontsize=9.5,
+        style="italic",
+        color="#666666",
+        ha="left",
+        va="bottom",
+    )
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    logger.info("Wrote %s (%d managers)", out_path, len(frame))
     return out_path

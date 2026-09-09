@@ -5,6 +5,7 @@ from nuclearff.report.build import write_report
 from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.tables import render_position_table, top_n_by_position
 from nuclearff.report.trades import (
+    render_trade_leaderboard,
     render_trade_network,
     render_trades_by_manager,
     render_trades_heatmap,
@@ -15,6 +16,7 @@ __all__ = [
     "render_draft_board",
     "render_playoff_brackets",
     "render_position_table",
+    "render_trade_leaderboard",
     "render_trade_network",
     "render_trades_by_manager",
     "render_trades_heatmap",
