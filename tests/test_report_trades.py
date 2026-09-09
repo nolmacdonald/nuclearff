@@ -312,7 +312,11 @@ def _cumulative() -> pl.DataFrame:
         {
             "manager": ["nolmacdonald", "nolmacdonald", "Donkeysride"],
             "transaction_id": ["1", "2", "3"],
-            "created_at": [start, start + timedelta(days=10), start + timedelta(days=5)],
+            "created_at": [
+                start,
+                start + timedelta(days=10),
+                start + timedelta(days=5),
+            ],
             "cumulative_trades": [1, 2, 1],
         }
     )

@@ -735,7 +735,8 @@ def render_cumulative_trades(
         from matplotlib.transforms import blended_transform_factory
     except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
         raise RenderingUnavailableError(
-            "Rendering cumulative trades needs matplotlib, a core dependency: `uv sync`."
+            "Rendering cumulative trades needs matplotlib, a core "
+            "dependency: `uv sync`."
         ) from exc
 
     managers = sorted(cumulative["manager"].unique())
@@ -753,7 +754,9 @@ def render_cumulative_trades(
             color=color,
             linewidth=1.5,
         )
-        ends.append((manager, series["created_at"][-1], series["cumulative_trades"][-1], color))
+        ends.append(
+            (manager, series["created_at"][-1], series["cumulative_trades"][-1], color)
+        )
 
     ax.set_xlabel("Date")
     ax.set_ylabel("Cumulative trades")
@@ -786,7 +789,7 @@ def render_cumulative_trades(
             # that are illegible on white. The leader line still carries
             # the series' real color, so identity isn't lost.
             color="#222222",
-            arrowprops=dict(arrowstyle="-", color=color, lw=0.6, alpha=0.6),
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.6, "alpha": 0.6},
         )
 
     out_path = Path(out_path)
@@ -795,5 +798,3 @@ def render_cumulative_trades(
     plt.close(fig)
     logger.info("Wrote %s (%d managers)", out_path, len(managers))
     return out_path
-
-
