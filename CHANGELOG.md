@@ -402,6 +402,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `requests` replaces `httpx` as the HTTP client, matching the plan and the
   `responses` test-mocking strategy.
 
+### Removed
+
+- The "Decision Notes" Sphinx section (`docs/source/decisions.rst`,
+  `docs/source/decisions/0001-repository-conventions.md`) and its toctree
+  entry, and the matching guidance in `CONTRIBUTING.md` pointing contributors
+  at it (GitHub Issue 66). Deleted outright, not migrated — the four
+  decisions it recorded (build backend, docstring style, `requests`/
+  `argparse`, draft-rounds resolution) are already reflected in the code and
+  this file's own `### Changed` entries above.
+
 ### Fixed
 
 - `[tool.ty]` `python-version` moved to `[tool.ty.environment]`, where current

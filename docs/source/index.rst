@@ -47,6 +47,5 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
    user_guide
    sleeper_api_tutorial
    api/index
-   decisions
    changelog
    contributing
