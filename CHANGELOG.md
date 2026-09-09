@@ -207,6 +207,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   if `sleeper_standings` hasn't been populated yet). Managers are sorted
   ascending into the chart so the highest trade count renders at the top,
   ties broken alphabetically for a deterministic image.
+- `nuclearff.report.trades.render_trades_heatmap` (GitHub Issue 43, split
+  from Issue 40), wired into the same `report trades` command: a symmetric
+  manager x manager heatmap of `pairwise_trade_matrix`'s output, densified
+  by the CLI against the full `sleeper_standings` roster the same way as
+  issue #42's bar chart, so a manager with zero trades still renders as an
+  all-zero row and column. Uses matplotlib's `layout="constrained"`, not
+  `tight_layout()`: `imshow`'s equal-aspect box combined with a colorbar
+  made `tight_layout()` center the grid in its allotted space, leaving a
+  large dead gap between the title and the grid that persisted even after
+  explicitly re-anchoring the axes (`colorbar()`/`tight_layout()` both
+  reposition the axes and silently reset that anchor). A figure-size floor
+  fixes a second real bug found the same way: below ~6 inches, constrained
+  layout has too little room for the title, tick labels, and colorbar
+  together and silently falls back to an overlapping, unreadable layout —
+  hit by the 1-2 manager case, a small but real league size. Verified
+  against this league's real 22-trade, 15-manager history, including the
+  real three-team trade contributing one edge to each of its three pairs.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

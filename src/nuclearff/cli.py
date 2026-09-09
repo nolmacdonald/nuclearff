@@ -644,6 +644,42 @@ def _cmd_report_draft_board(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _densify_trade_matrix(
+    matrix: pl.DataFrame, all_managers: list[str]
+) -> pl.DataFrame:
+    """Expand a pairwise trade matrix to include every manager in ``all_managers``.
+
+    :func:`nuclearff.sleeper.trades.pairwise_trade_matrix` is dense only over
+    managers who appear in trade data (by its own module's design — see its
+    docstring); a manager with zero trades needs an explicit all-zero
+    row/column added here, same join-in-the-CLI pattern already used for
+    :func:`render_trades_by_manager`'s ``counts`` above.
+
+    Args:
+        matrix: Output of ``pairwise_trade_matrix``, possibly missing rows
+            and columns for managers who never traded.
+        all_managers: The full manager roster to densify against.
+
+    Returns:
+        A matrix with one row and one column per manager in ``all_managers``,
+        ``0`` for any pair not present in ``matrix``.
+    """
+    existing_rows = {row["manager"]: row for row in matrix.to_dicts()}
+    rows = []
+    for row_manager in all_managers:
+        existing_row = existing_rows.get(row_manager)
+        row: dict[str, object] = {"manager": row_manager}
+        for col_manager in all_managers:
+            if row_manager == col_manager:
+                row[col_manager] = 0
+            elif existing_row is not None and col_manager in existing_row:
+                row[col_manager] = existing_row[col_manager]
+            else:
+                row[col_manager] = 0
+        rows.append(row)
+    return pl.DataFrame(rows)
+
+
 def _cmd_report_trades(args: argparse.Namespace) -> int:
     """Render the manager trade network from stored trade history.
 
@@ -661,8 +697,12 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         An exit code.
     """
     from nuclearff.duckdb_io import read_table
-    from nuclearff.report import render_trades_by_manager
-    from nuclearff.sleeper.trades import load_trades, manager_trade_counts
+    from nuclearff.report import render_trades_by_manager, render_trades_heatmap
+    from nuclearff.sleeper.trades import (
+        load_trades,
+        manager_trade_counts,
+        pairwise_trade_matrix,
+    )
 
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
@@ -703,8 +743,12 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     )
     out_path = render_trades_by_manager(counts, out_dir / "trades_by_manager.png")
 
+    matrix = _densify_trade_matrix(pairwise_trade_matrix(edges), all_managers)
+    heatmap_path = render_trades_heatmap(matrix, out_dir / "trades_heatmap.png")
+
     print(f"Managers:          {counts.height}")
     print(f"Trades by manager: {out_path}")
+    print(f"Trades heatmap:    {heatmap_path}")
     return EXIT_OK
 
 

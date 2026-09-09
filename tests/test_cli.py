@@ -6,10 +6,18 @@ data tree, and every network call is mocked.
 
 from __future__ import annotations
 
+import polars as pl
 import pytest
 import responses
 
-from nuclearff.cli import EXIT_ERROR, EXIT_OK, EXIT_USAGE, build_parser, main
+from nuclearff.cli import (
+    EXIT_ERROR,
+    EXIT_OK,
+    EXIT_USAGE,
+    _densify_trade_matrix,
+    build_parser,
+    main,
+)
 from nuclearff.config import load_config
 from tests.conftest import LEAGUE_ID, TEST_BASE_URL
 from tests.test_sleeper_snapshot import DRAFT_ID
@@ -1065,6 +1073,23 @@ def _mock_trades_endpoints():
         )
 
 
+def test_densify_trade_matrix_adds_zero_rows_and_columns_for_missing_managers():
+    sparse = pl.DataFrame(
+        {
+            "manager": ["Donkeysride", "nolmacdonald"],
+            "Donkeysride": [0, 2],
+            "nolmacdonald": [2, 0],
+        }
+    )
+
+    dense = _densify_trade_matrix(sparse, ["Donkeysride", "hyoga10", "nolmacdonald"])
+
+    assert dense["manager"].to_list() == ["Donkeysride", "hyoga10", "nolmacdonald"]
+    assert dense["hyoga10"].to_list() == [0, 0, 0]
+    assert dense.filter(pl.col("manager") == "hyoga10")["Donkeysride"].item() == 0
+    assert dense.filter(pl.col("manager") == "Donkeysride")["nolmacdonald"].item() == 2
+
+
 @responses.activate
 def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     tmp_path, capsys
@@ -1104,6 +1129,7 @@ def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     out = capsys.readouterr().out
     assert "Managers:          3" in out
     assert (out_dir / "trades_by_manager.png").is_file()
+    assert (out_dir / "trades_heatmap.png").is_file()
 
 
 @responses.activate
@@ -1156,6 +1182,7 @@ def test_report_trades_falls_back_without_standings_table(tmp_path, capsys):
     assert exit_code == EXIT_OK
     assert "Managers:          2" in capsys.readouterr().out  # only the 2 traders
     assert (out_dir / "trades_by_manager.png").is_file()
+    assert (out_dir / "trades_heatmap.png").is_file()
 
 
 def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):
