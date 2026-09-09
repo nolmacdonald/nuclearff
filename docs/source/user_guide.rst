@@ -453,103 +453,9 @@ case, not an error — the grid simply draws however many picks exist so far.
 Trade network analysis
 ------------------------------
 
-``report trades`` renders the manager trade network from stored trade
-history — currently a bar chart of total trades per manager, a manager-pair
-heatmap, a node-link network graph, a leaderboard table, a manager-pair
-leaderboard, and a trades-over-time line chart, with others landing as
-later issues on top of the same command:
-
-.. code-block:: text
-
-   $ nuclearff --root ./demo report trades 1367225133634191360
-   Managers:                 15
-   Trades by manager:        ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
-   Trades heatmap:           ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
-   Trade network:            ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
-   Trade leaderboard:        ./demo/data/artifacts/1367225133634191360-trades/trade_leaderboard.png
-   Manager-pair leaderboard: ./demo/data/artifacts/1367225133634191360-trades/manager_pair_leaderboard.png
-   Trades over time:         ./demo/data/artifacts/1367225133634191360-trades/trades_over_time.png
-
-That's this league's real trade history: 22 completed trades since 2021,
-across the 15 managers who have ever held a roster in the league.
-``nolmacdonald`` (14 trades) is the league's most active trader by a wide
-margin; five managers have never made one.
-
-Two real details from this exact data are worth knowing before reading the
-chart:
-
-- **A manager's bar counts distinct trades, not trade relationships.**
-  Sleeper allows more than two rosters in a single trade, and this league
-  has a real one — a 2022 three-team trade among ``casitzmann``,
-  ``nolmacdonald``, and ``nolanmacdonald``. Each of those three managers'
-  bars counts it once, not twice, even though it touches two other managers
-  each.
-- **A manager needs a resolvable Sleeper display name to appear at all.**
-  Two of this league's 22 real trades have a roster whose owner isn't in
-  that season's user list — a real (if rare) Sleeper data inconsistency,
-  not a bug here — so neither trade contributes to any manager's count.
-- **Manager identity is a display name, not a stable id**, and this
-  league's data shows exactly why that matters: ``nolmacdonald`` (14
-  trades) and ``nolanmacdonald`` (2 trades, including the three-team trade
-  above) render as two separate bars. Nothing here merges them
-  automatically — reading the chart correctly means knowing your own
-  league's naming history.
-
-``sleeper_transactions`` (written by ``--transactions`` above) supplies the
-trades; ``sleeper_standings`` (written by ``--standings``) supplies the
-*full* manager roster, so a manager with zero trades still shows up at
-``0`` instead of being silently missing. Skip ``--standings`` and the chart
-still renders — it just can't include a manager who never traded, since
-trade data alone gives no way to know they exist. The same roster join
-applies to the heatmap below: a manager with zero trades still gets a
-dense, all-zero row and column rather than being omitted from the grid.
-
-The heatmap is symmetric — trades between ``casitzmann`` and
-``nolmacdonald`` show as ``4`` in both directions — with a ``0`` diagonal,
-since a manager can't trade with themselves. The three-team trade mentioned
-above lands as one ``+1`` for each of the three pairs it touches
-(``casitzmann``-``nolmacdonald``, ``casitzmann``-``nolanmacdonald``,
-``nolmacdonald``-``nolanmacdonald``), not counted twice for any single pair.
-
-The network graph draws one node per manager (sized by their total trades)
-and one edge per manager pair that has traded (widened by the trade count
-between that pair) — the same densified, full-roster inputs as the bar
-chart and heatmap, so a zero-trade manager still appears, here as an
-isolated node rather than being silently dropped. With only 22 trades
-across 15 managers, the graph is genuinely sparse — several managers never
-connect to the rest of the league at all. That is this league's real
-trading activity, not a rendering bug, and the chart says so directly.
-
-The leaderboard table is one reference row per manager — Trades, Unique
-Partners, Most Frequent Partner, Trades With Partner — sorted by trade
-count, most active first. It has no circle-cropped headshots unlike
-``nuclearff``'s player tables: a Sleeper manager has no headshot URL
-anywhere in this project's data model, only an avatar id nothing currently
-resolves. A zero-trade manager still gets a full row rather than being
-omitted, with ``—`` in place of a partner that doesn't exist.
-
-The manager-pair leaderboard is a horizontal bar chart of the top 10 manager
-pairs by trade count, labeled ``Manager A ↔ Manager B``. Unlike the heatmap
-(dense over every manager, including zero-trade pairs) it only shows pairs
-that actually traded — with a real 22-trade history, that's 10 pairs across
-15 managers, most tied at a single trade. Each pair appears once: Sleeper
-trade rows are exploded into manager-pair edges with the two names already
-sorted alphabetically, so grouping directly on them can never produce both
-an A↔B and a B↔A row for the same pair.
-
-The trades-over-time chart is one thin line per manager plus a bold
-league-wide total line, by season. A manager's line covers only the
-seasons ``sleeper_standings`` shows them actually rostering — joining a
-league partway through starts their line there rather than drawing it back
-through seasons before they existed, and a season they rostered but didn't
-trade in renders as a real dip to ``0`` rather than a gap. The league
-total counts each trade once regardless of how many managers it involved,
-the same de-duplication every other trade-count aggregate in this project
-uses — summing every manager's own line instead would roughly double-count
-a season's real trade volume, since most trades involve two managers.
-
-``--out-dir`` overrides the default output location,
-``<artifacts>/<league_id>-trades/``.
+``report trades`` turns a league's stored trade history into ten PNGs —
+who trades, who trades with whom, and how that's changed over time. It's
+its own page: :doc:`league_trade_history`.
 
 Querying what you've built
 -------------------------------
@@ -597,4 +503,6 @@ See Also
 - :doc:`getting_started` — installation and configuration.
 - :doc:`sleeper_api_tutorial` — the Sleeper API itself, and using
   ``SleeperClient`` directly in Python rather than through the CLI.
+- :doc:`league_trade_history` — ``report trades``'s ten trade-history
+  visualizations, in depth.
 - :doc:`api/index` — full reference for every public class and function.
