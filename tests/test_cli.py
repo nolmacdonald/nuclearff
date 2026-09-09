@@ -1130,6 +1130,7 @@ def test_report_trades_renders_a_png_and_densifies_zero_trade_managers(
     assert "Managers:          3" in out
     assert (out_dir / "trades_by_manager.png").is_file()
     assert (out_dir / "trades_heatmap.png").is_file()
+    assert (out_dir / "trade_network.png").is_file()
 
 
 @responses.activate
@@ -1183,6 +1184,7 @@ def test_report_trades_falls_back_without_standings_table(tmp_path, capsys):
     assert "Managers:          2" in capsys.readouterr().out  # only the 2 traders
     assert (out_dir / "trades_by_manager.png").is_file()
     assert (out_dir / "trades_heatmap.png").is_file()
+    assert (out_dir / "trade_network.png").is_file()
 
 
 def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):

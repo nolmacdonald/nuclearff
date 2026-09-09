@@ -224,6 +224,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hit by the 1-2 manager case, a small but real league size. Verified
   against this league's real 22-trade, 15-manager history, including the
   real three-team trade contributing one edge to each of its three pairs.
+- `nuclearff.report.trades.render_trade_network` (GitHub Issue 44, split
+  from Issue 40), wired into the same `report trades` command: a
+  `networkx` node-link graph, one node per manager (sized by total trades)
+  and one edge per trading pair (widened by trade count), from the same
+  densified `counts`/`matrix` inputs as the bar chart and heatmap so a
+  zero-trade manager still appears as an isolated node. `networkx` is a
+  new `dev`-extra dependency (visualization-only, matching how `plottable`
+  itself was added). Two real layout bugs found rendering against this
+  league's real 15-manager, 22-trade history: the italic sparse-data
+  caveat overlapped the title outright (fixed with the same `pad=30`
+  title/`y=1.006` caveat pattern already used in `report/tables.py`, which
+  this function had omitted), and `spring_layout`'s default node spacing
+  (`1/sqrt(n)`) is tuned for single-character labels, not real manager
+  names — every label in the connected cluster overlapped its neighbors
+  until `k` was widened to `3/sqrt(n)`.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,
