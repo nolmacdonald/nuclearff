@@ -450,6 +450,55 @@ anything.
 Rendering an in-progress draft (not every round complete yet) is the normal
 case, not an error — the grid simply draws however many picks exist so far.
 
+Trade network analysis
+------------------------------
+
+``report trades`` renders the manager trade network from stored trade
+history — currently a single horizontal bar chart of total trades per
+manager, with a partner heatmap, a ``networkx`` graph, and others landing as
+later issues on top of the same command:
+
+.. code-block:: text
+
+   $ nuclearff --root ./demo report trades 1367225133634191360
+   Managers:          15
+   Trades by manager: ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
+
+That's this league's real trade history: 22 completed trades since 2021,
+across the 15 managers who have ever held a roster in the league.
+``nolmacdonald`` (14 trades) is the league's most active trader by a wide
+margin; five managers have never made one.
+
+Two real details from this exact data are worth knowing before reading the
+chart:
+
+- **A manager's bar counts distinct trades, not trade relationships.**
+  Sleeper allows more than two rosters in a single trade, and this league
+  has a real one — a 2022 three-team trade among ``casitzmann``,
+  ``nolmacdonald``, and ``nolanmacdonald``. Each of those three managers'
+  bars counts it once, not twice, even though it touches two other managers
+  each.
+- **A manager needs a resolvable Sleeper display name to appear at all.**
+  Two of this league's 22 real trades have a roster whose owner isn't in
+  that season's user list — a real (if rare) Sleeper data inconsistency,
+  not a bug here — so neither trade contributes to any manager's count.
+- **Manager identity is a display name, not a stable id**, and this
+  league's data shows exactly why that matters: ``nolmacdonald`` (14
+  trades) and ``nolanmacdonald`` (2 trades, including the three-team trade
+  above) render as two separate bars. Nothing here merges them
+  automatically — reading the chart correctly means knowing your own
+  league's naming history.
+
+``sleeper_transactions`` (written by ``--transactions`` above) supplies the
+trades; ``sleeper_standings`` (written by ``--standings``) supplies the
+*full* manager roster, so a manager with zero trades still shows up at
+``0`` instead of being silently missing. Skip ``--standings`` and the chart
+still renders — it just can't include a manager who never traded, since
+trade data alone gives no way to know they exist.
+
+``--out-dir`` overrides the default output location,
+``<artifacts>/<league_id>-trades/``.
+
 Querying what you've built
 -------------------------------
 
