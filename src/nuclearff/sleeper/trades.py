@@ -261,6 +261,41 @@ def pairwise_trade_matrix(edges: pl.DataFrame) -> pl.DataFrame:
     return pl.DataFrame(rows)
 
 
+def top_manager_pairs(edges: pl.DataFrame, n: int = 10) -> pl.DataFrame:
+    """The ``n`` manager pairs with the most trades between them.
+
+    Each pair appears once, not twice: :func:`load_trades` already sorts
+    ``manager_a``/``manager_b`` alphabetically per trade (see the module
+    docstring), so grouping directly on those two columns can never produce
+    both an A-B and a B-A row for the same pair.
+
+    Args:
+        edges: Output of :func:`load_trades`.
+        n: Number of pairs to return. A league with fewer than ``n`` real
+            pairs just returns all of them -- not padded with zero-trade
+            pairs, unlike :func:`pairwise_trade_matrix`'s dense grid.
+
+    Returns:
+        At most ``n`` rows: ``manager_a``, ``manager_b``, ``trades``
+        (distinct transaction count), ranked highest first, ties broken
+        alphabetically by ``manager_a`` then ``manager_b`` for a
+        deterministic ranking.
+    """
+    schema = {"manager_a": pl.String, "manager_b": pl.String, "trades": pl.UInt32}
+    if edges.height == 0:
+        return pl.DataFrame(schema=schema)
+
+    return (
+        edges.group_by(["manager_a", "manager_b"])
+        .agg(pl.col("transaction_id").n_unique().alias("trades"))
+        .sort(
+            ["trades", "manager_a", "manager_b"],
+            descending=[True, False, False],
+        )
+        .head(n)
+    )
+
+
 def trades_by_season(edges: pl.DataFrame) -> pl.DataFrame:
     """Per-manager, per-season trade counts.
 

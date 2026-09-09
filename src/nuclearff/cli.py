@@ -698,6 +698,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     """
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import (
+        render_manager_pair_leaderboard,
         render_trade_leaderboard,
         render_trade_network,
         render_trades_by_manager,
@@ -707,6 +708,7 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         load_trades,
         manager_trade_counts,
         pairwise_trade_matrix,
+        top_manager_pairs,
     )
 
     config = _resolve_config(args)
@@ -778,12 +780,16 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     leaderboard_path = render_trade_leaderboard(
         counts, out_dir / "trade_leaderboard.png"
     )
+    pair_leaderboard_path = render_manager_pair_leaderboard(
+        top_manager_pairs(edges), out_dir / "manager_pair_leaderboard.png"
+    )
 
-    print(f"Managers:          {counts.height}")
-    print(f"Trades by manager: {out_path}")
-    print(f"Trades heatmap:    {heatmap_path}")
-    print(f"Trade network:     {network_path}")
-    print(f"Trade leaderboard: {leaderboard_path}")
+    print(f"Managers:                 {counts.height}")
+    print(f"Trades by manager:        {out_path}")
+    print(f"Trades heatmap:           {heatmap_path}")
+    print(f"Trade network:            {network_path}")
+    print(f"Trade leaderboard:        {leaderboard_path}")
+    print(f"Manager-pair leaderboard: {pair_leaderboard_path}")
     return EXIT_OK
 
 

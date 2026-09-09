@@ -1,9 +1,9 @@
 """Unit tests for nuclearff.report.trades: manager trade-network rendering.
 
 ``render_trades_by_manager`` (issue #42), ``render_trades_heatmap`` (issue
-#43), ``render_trade_network`` (issue #44), and ``render_trade_leaderboard``
-(issue #46) exist so far; more render functions land here as issues #47-#51
-merge.
+#43), ``render_trade_network`` (issue #44), ``render_trade_leaderboard``
+(issue #46), and ``render_manager_pair_leaderboard`` (issue #47) exist so
+far; more render functions land here as issues #48-#51 merge.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import polars as pl
 
 from nuclearff.report.trades import (
+    render_manager_pair_leaderboard,
     render_trade_leaderboard,
     render_trade_network,
     render_trades_by_manager,
@@ -168,5 +169,48 @@ def test_render_trade_leaderboard_handles_a_single_manager(tmp_path):
     )
 
     result = render_trade_leaderboard(counts, out_path)
+
+    assert result.is_file()
+
+
+def _pairs() -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "manager_a": ["Donkeysride", "Donkeysride", "hyoga10"],
+            "manager_b": ["nolmacdonald", "hyoga10", "nolmacdonald"],
+            "trades": [2, 1, 1],
+        }
+    )
+
+
+def test_render_manager_pair_leaderboard_writes_a_png(tmp_path):
+    out_path = tmp_path / "manager_pair_leaderboard.png"
+
+    result = render_manager_pair_leaderboard(_pairs(), out_path)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_manager_pair_leaderboard_handles_a_single_pair(tmp_path):
+    out_path = tmp_path / "manager_pair_leaderboard.png"
+    pairs = pl.DataFrame(
+        {"manager_a": ["Donkeysride"], "manager_b": ["nolmacdonald"], "trades": [2]}
+    )
+
+    result = render_manager_pair_leaderboard(pairs, out_path)
+
+    assert result.is_file()
+
+
+def test_render_manager_pair_leaderboard_handles_no_pairs(tmp_path):
+    """A league with zero trades has zero pairs -- not a crash."""
+    out_path = tmp_path / "manager_pair_leaderboard.png"
+    pairs = pl.DataFrame(
+        schema={"manager_a": pl.String, "manager_b": pl.String, "trades": pl.UInt32}
+    )
+
+    result = render_manager_pair_leaderboard(pairs, out_path)
 
     assert result.is_file()

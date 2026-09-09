@@ -256,6 +256,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PARTNER"/"TRADES WITH PARTNER" (far wider than `report/tables.py`'s
   short abbreviations like "PTS") overflowed into neighboring columns
   until every column was widened to fit its own header text.
+- `nuclearff.sleeper.trades.top_manager_pairs` and
+  `nuclearff.report.trades.render_manager_pair_leaderboard` (GitHub Issue
+  47, split from Issue 40), wired into the same `report trades` command: a
+  horizontal bar chart of the top 10 manager pairs by trade count, labeled
+  `Manager A ↔ Manager B`. Each pair appears once by construction, not by
+  post-hoc deduplication — `load_trades` already sorts `manager_a`/
+  `manager_b` alphabetically per trade, so grouping directly on those two
+  columns can never produce both an A-B and a B-A row for the same pair.
+  Unlike `pairwise_trade_matrix`'s dense grid, a pair that never traded is
+  simply absent rather than padded with a `0` bar. Verified against this
+  league's real 22-trade history: 10 real pairs, `casitzmann`/
+  `nolmacdonald` and `BigCookie96`/`nolmacdonald` tied at the top with 4
+  trades each.
 - `docs/source/user_guide.rst`, a complete walkthrough of every `nuclearff`
   CLI command and flag — league capture, multi-season history, standings and
   playoff results, weekly matchups, transaction history, roster composition,

@@ -23,6 +23,7 @@ from nuclearff.sleeper.trades import (
     load_trades,
     manager_trade_counts,
     pairwise_trade_matrix,
+    top_manager_pairs,
     trades_by_season,
 )
 
@@ -150,6 +151,7 @@ def test_load_trades_returns_empty_frame_for_no_trades(tmp_path):
     assert edges.height == 0
     assert manager_trade_counts(edges).height == 0
     assert pairwise_trade_matrix(edges).height == 0
+    assert top_manager_pairs(edges).height == 0
     assert trades_by_season(edges).height == 0
     assert cumulative_trade_counts(edges).height == 0
 
@@ -201,6 +203,38 @@ def test_pairwise_trade_matrix_is_symmetric_and_dense(db_path):
     assert by_manager["Donkeysride"]["nolmacdonald"] == 2
     assert by_manager["nolmacdonald"]["nolmacdonald"] == 0
     assert by_manager["nolmacdonald"]["hyoga10"] == 1
+
+
+# --- top_manager_pairs -------------------------------------------------------
+
+
+def test_top_manager_pairs_ranks_by_trade_count_descending(db_path):
+    edges = load_trades(db_path)
+    top = top_manager_pairs(edges)
+
+    assert top.row(0, named=True) == {
+        "manager_a": "Donkeysride",
+        "manager_b": "nolmacdonald",
+        "trades": 2,
+    }
+
+
+def test_top_manager_pairs_each_pair_appears_once(db_path):
+    """Issue #47's acceptance criterion: A-B, never also B-A."""
+    edges = load_trades(db_path)
+    top = top_manager_pairs(edges)
+
+    pairs = list(zip(top["manager_a"], top["manager_b"], strict=True))
+    reversed_pairs = {(b, a) for a, b in pairs}
+
+    assert len(pairs) == len(set(pairs))
+    assert not reversed_pairs & set(pairs)
+
+
+def test_top_manager_pairs_respects_n(db_path):
+    edges = load_trades(db_path)
+
+    assert top_manager_pairs(edges, n=1).height == 1
 
 
 # --- trades_by_season -------------------------------------------------------
