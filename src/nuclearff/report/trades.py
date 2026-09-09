@@ -2,11 +2,12 @@
 
 ``matplotlib`` is imported lazily inside each render function, the same
 posture :mod:`nuclearff.report.tables` uses, so importing ``nuclearff.report``
-doesn't require it at module load time. ``render_trades_by_manager`` and
-``render_trades_heatmap`` need no ``dev`` extra at all, since ``matplotlib``
-is a core dependency (unlike ``plottable``) -- ``render_trade_network`` needs
-``networkx`` and ``render_trade_leaderboard`` needs ``plottable``, both
-genuine ``dev`` extras.
+doesn't require it at module load time. ``render_trades_by_manager``,
+``render_trades_heatmap``, and ``render_manager_pair_leaderboard`` need no
+``dev`` extra at all, since ``matplotlib`` is a core dependency (unlike
+``plottable``) -- ``render_trade_network`` needs ``networkx`` and
+``render_trade_leaderboard`` needs ``plottable``, both genuine ``dev``
+extras.
 """
 
 from __future__ import annotations
@@ -436,4 +437,76 @@ def render_trade_leaderboard(
     fig.savefig(out_path, facecolor="white", dpi=200, bbox_inches="tight")
     plt.close(fig)
     logger.info("Wrote %s (%d managers)", out_path, len(frame))
+    return out_path
+
+
+def render_manager_pair_leaderboard(
+    pairs: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Manager-Pair Leaderboard",
+) -> Path:
+    """Render a horizontal bar chart of the league's most active trading pairs.
+
+    Args:
+        pairs: One row per manager pair, with ``manager_a``, ``manager_b``,
+            and ``trades`` columns -- e.g.
+            :func:`nuclearff.sleeper.trades.top_manager_pairs`'s output.
+            Each pair must appear only once (that function's own docstring
+            explains why its output already guarantees this).
+        out_path: Destination PNG path.
+        title: Figure title.
+
+    Returns:
+        The path written.
+
+    Raises:
+        RenderingUnavailableError: If ``matplotlib`` is not installed.
+    """
+    try:
+        import matplotlib
+
+        # Force the non-interactive Agg backend before pyplot is imported --
+        # see nuclearff.report.tables for why.
+        matplotlib.use("Agg")
+
+        import matplotlib.pyplot as plt
+    except ImportError as exc:  # pragma: no cover - matplotlib is a core dependency
+        raise RenderingUnavailableError(
+            "Rendering the manager-pair leaderboard needs matplotlib, a "
+            "core dependency: `uv sync`."
+        ) from exc
+
+    # Ascending, so the top pair ends up at the top of the chart -- same
+    # barh-draws-bottom-to-top reasoning as render_trades_by_manager. Ties
+    # broken alphabetically for a deterministic chart.
+    ordered = pairs.sort(
+        ["trades", "manager_a", "manager_b"], descending=[False, False, False]
+    )
+    labels = [
+        f"{row['manager_a']} ↔ {row['manager_b']}"
+        for row in ordered.iter_rows(named=True)
+    ]
+    trades = ordered["trades"].to_list()
+
+    fig, ax = plt.subplots(figsize=(9, 0.4 * len(labels) + 1.5))
+    ax.barh(labels, trades, color="#4c72b0")
+    for i, value in enumerate(trades):
+        ax.text(
+            value + max(trades, default=0) * 0.01,
+            i,
+            str(value),
+            va="center",
+            fontsize=9,
+        )
+
+    ax.set_xlabel("Trades")
+    ax.set_title(title, loc="left", fontsize=14, weight="bold")
+    fig.tight_layout()
+
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, facecolor="white", dpi=200)
+    plt.close(fig)
+    logger.info("Wrote %s (%d pairs)", out_path, len(labels))
     return out_path

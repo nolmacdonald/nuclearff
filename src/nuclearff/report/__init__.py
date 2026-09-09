@@ -5,6 +5,7 @@ from nuclearff.report.build import write_report
 from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.tables import render_position_table, top_n_by_position
 from nuclearff.report.trades import (
+    render_manager_pair_leaderboard,
     render_trade_leaderboard,
     render_trade_network,
     render_trades_by_manager,
@@ -14,6 +15,7 @@ from nuclearff.report.trades import (
 __all__ = [
     "render_bracket_tree",
     "render_draft_board",
+    "render_manager_pair_leaderboard",
     "render_playoff_brackets",
     "render_position_table",
     "render_trade_leaderboard",

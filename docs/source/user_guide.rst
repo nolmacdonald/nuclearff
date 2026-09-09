@@ -455,17 +455,18 @@ Trade network analysis
 
 ``report trades`` renders the manager trade network from stored trade
 history — currently a bar chart of total trades per manager, a manager-pair
-heatmap, a node-link network graph, and a leaderboard table, with others
-landing as later issues on top of the same command:
+heatmap, a node-link network graph, a leaderboard table, and a manager-pair
+leaderboard, with others landing as later issues on top of the same command:
 
 .. code-block:: text
 
    $ nuclearff --root ./demo report trades 1367225133634191360
-   Managers:          15
-   Trades by manager: ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
-   Trades heatmap:    ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
-   Trade network:     ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
-   Trade leaderboard: ./demo/data/artifacts/1367225133634191360-trades/trade_leaderboard.png
+   Managers:                 15
+   Trades by manager:        ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
+   Trades heatmap:           ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png
+   Trade network:            ./demo/data/artifacts/1367225133634191360-trades/trade_network.png
+   Trade leaderboard:        ./demo/data/artifacts/1367225133634191360-trades/trade_leaderboard.png
+   Manager-pair leaderboard: ./demo/data/artifacts/1367225133634191360-trades/manager_pair_leaderboard.png
 
 That's this league's real trade history: 22 completed trades since 2021,
 across the 15 managers who have ever held a roster in the league.
@@ -524,6 +525,15 @@ count, most active first. It has no circle-cropped headshots unlike
 anywhere in this project's data model, only an avatar id nothing currently
 resolves. A zero-trade manager still gets a full row rather than being
 omitted, with ``—`` in place of a partner that doesn't exist.
+
+The manager-pair leaderboard is a horizontal bar chart of the top 10 manager
+pairs by trade count, labeled ``Manager A ↔ Manager B``. Unlike the heatmap
+(dense over every manager, including zero-trade pairs) it only shows pairs
+that actually traded — with a real 22-trade history, that's 10 pairs across
+15 managers, most tied at a single trade. Each pair appears once: Sleeper
+trade rows are exploded into manager-pair edges with the two names already
+sorted alphabetically, so grouping directly on them can never produce both
+an A↔B and a B↔A row for the same pair.
 
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-trades/``.
