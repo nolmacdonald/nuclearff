@@ -83,11 +83,6 @@ Issues are the unit of planned work. Each issue defines **Problem**, **Scope**,
 6. CI must be green before merge; merges to `main` are squashed to keep the
    history readable.
 
-Research-heavy issues should first produce a checked-in decision note under
-`docs/source/decisions/`, so modeling choices do not live only in issue
-comments or notebooks. Notes are numbered (`0001-`, `0002-`, ...) and listed in
-`docs/source/decisions.rst`.
-
 ### Labels
 
 Labels are defined in `.github/labels.yml`:
