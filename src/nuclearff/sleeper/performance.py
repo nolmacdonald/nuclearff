@@ -51,6 +51,72 @@ _PERFORMANCE_SCHEMA = {
     "delta": pl.Float64,
 }
 
+_SEASON_SCHEMA = {
+    "player_id": pl.String,
+    "player_name": pl.String,
+    "position": pl.String,
+    "team": pl.String,
+    "manager": pl.String,
+    "games": pl.UInt32,
+    "avg_projected_points": pl.Float64,
+    "avg_actual_points": pl.Float64,
+    "avg_delta": pl.Float64,
+}
+
+
+def _explode_players_points(
+    matchups: pl.DataFrame, standings: pl.DataFrame, league_id: str
+) -> pl.DataFrame:
+    """Explode every week of one league's ``sleeper_matchups`` into per-player rows.
+
+    Shared by :func:`weekly_actuals` and :func:`season_actuals` — the only
+    difference between "one week" and "a whole season" is which rows the
+    caller keeps afterward.
+
+    Args:
+        matchups: ``sleeper_matchups`` rows.
+        standings: ``sleeper_standings`` rows — needs ``league_id``,
+            ``roster_id``, ``display_name``.
+        league_id: The specific season's league id to restrict to.
+
+    Returns:
+        One row per (roster, player, week) rostered that season: matches
+        :data:`_ACTUALS_SCHEMA`. A roster with no resolvable manager name
+        contributes no rows.
+    """
+    names = dict(
+        standings.filter(pl.col("league_id") == league_id)
+        .select("roster_id", "display_name")
+        .iter_rows()
+    )
+
+    filtered = matchups.filter(pl.col("league_id") == league_id)
+
+    rows: list[dict[str, Any]] = []
+    for row in filtered.iter_rows(named=True):
+        manager = names.get(row["roster_id"])
+        if not manager:
+            continue
+        starters = set(json.loads(row["starters"] or "[]"))
+        players_points: dict[str, Any] = json.loads(row["players_points"] or "{}")
+        for player_id, points in players_points.items():
+            rows.append(
+                {
+                    "league_id": league_id,
+                    "season": row["season"],
+                    "week": row["week"],
+                    "roster_id": row["roster_id"],
+                    "manager": manager,
+                    "player_id": str(player_id),
+                    "is_starter": player_id in starters,
+                    "actual_points": float(points) if points is not None else 0.0,
+                }
+            )
+
+    if not rows:
+        return pl.DataFrame(schema=_ACTUALS_SCHEMA)
+    return pl.DataFrame(rows, schema=_ACTUALS_SCHEMA)
+
 
 def weekly_actuals(
     matchups: pl.DataFrame, standings: pl.DataFrame, league_id: str, week: int
@@ -70,40 +136,28 @@ def weekly_actuals(
         ``is_starter``, ``actual_points``. A roster with no resolvable
         manager name contributes no rows.
     """
-    names = dict(
-        standings.filter(pl.col("league_id") == league_id)
-        .select("roster_id", "display_name")
-        .iter_rows()
+    return _explode_players_points(matchups, standings, league_id).filter(
+        pl.col("week") == week
     )
 
-    filtered = matchups.filter(
-        (pl.col("league_id") == league_id) & (pl.col("week") == week)
-    )
 
-    rows: list[dict[str, Any]] = []
-    for row in filtered.iter_rows(named=True):
-        manager = names.get(row["roster_id"])
-        if not manager:
-            continue
-        starters = set(json.loads(row["starters"] or "[]"))
-        players_points: dict[str, Any] = json.loads(row["players_points"] or "{}")
-        for player_id, points in players_points.items():
-            rows.append(
-                {
-                    "league_id": league_id,
-                    "season": row["season"],
-                    "week": week,
-                    "roster_id": row["roster_id"],
-                    "manager": manager,
-                    "player_id": str(player_id),
-                    "is_starter": player_id in starters,
-                    "actual_points": float(points) if points is not None else 0.0,
-                }
-            )
+def season_actuals(
+    matchups: pl.DataFrame, standings: pl.DataFrame, league_id: str
+) -> pl.DataFrame:
+    """Explode every week of ``sleeper_matchups`` for one league into per-player rows.
 
-    if not rows:
-        return pl.DataFrame(schema=_ACTUALS_SCHEMA)
-    return pl.DataFrame(rows, schema=_ACTUALS_SCHEMA)
+    Args:
+        matchups: ``sleeper_matchups`` rows.
+        standings: ``sleeper_standings`` rows — needs ``league_id``,
+            ``roster_id``, ``display_name``.
+        league_id: The specific season's league id to restrict to.
+
+    Returns:
+        One row per (roster, player, week) rostered that season, matching
+        :func:`weekly_actuals`'s schema but spanning every week present in
+        ``matchups`` for ``league_id`` rather than one.
+    """
+    return _explode_players_points(matchups, standings, league_id)
 
 
 def weekly_performance(
@@ -116,11 +170,18 @@ def weekly_performance(
 ) -> pl.DataFrame:
     """Combine actual and projected points into one ranked over/underperformer table.
 
+    Despite the name, this isn't inherently single-week: the join is keyed
+    on ``(season, week, player_id)``, so passing :func:`season_actuals`'s
+    multi-week output (alongside a ``projections`` table covering every one
+    of those weeks) computes one row per player *per week* across a whole
+    season just as well — :func:`season_summary` is what collapses that
+    into one row per player.
+
     Args:
-        actuals: Output of :func:`weekly_actuals`.
-        projections: ``sleeper_projections`` rows for the same
-            ``(season, week)`` — needs ``season``, ``week``, ``player_id``,
-            ``stats``.
+        actuals: Output of :func:`weekly_actuals` or :func:`season_actuals`.
+        projections: ``sleeper_projections`` rows covering every
+            ``(season, week)`` present in ``actuals`` — needs ``season``,
+            ``week``, ``player_id``, ``stats``.
         players: ``sleeper_players`` rows — needs ``player_id`` and,
             ideally, ``full_name``/``last_name``/``position``/``team``.
         scoring: The league's scoring rules, used to rescore each
@@ -156,8 +217,16 @@ def weekly_performance(
     names = players.select(
         "player_id",
         pl.coalesce(pl.col("full_name"), pl.col("last_name")).alias("player_name"),
-        "position",
-        "team",
+        pl.col("position").fill_null("--"),
+        # A real, legitimate null for a current free agent (Sleeper's player
+        # map reflects *today's* roster, not the season being reported on --
+        # a player can leave the league entirely between then and now).
+        # Left as a bare null, this renders as the literal string "nan" once
+        # it crosses the pandas/plottable boundary -- a real bug caught
+        # rendering the season report against this league's real 2025 data
+        # (Nick Chubb, Zach Ertz both real 2025 starters, both real free
+        # agents as of this fetch).
+        pl.col("team").fill_null("FA"),
     )
 
     merged = (
@@ -172,3 +241,52 @@ def weekly_performance(
         .sort("delta", descending=True)
     )
     return merged.select(list(_PERFORMANCE_SCHEMA))
+
+
+def season_summary(performance: pl.DataFrame, *, min_games: int = 3) -> pl.DataFrame:
+    """Collapse per-(player, week) performance rows into one row per player.
+
+    Unlike the single-week report (see
+    :func:`nuclearff.report.performance._underperformers`), a completed
+    season has no "hasn't played yet" ambiguity to worry about — every week
+    present already happened, so an exact-``0.0`` actual is a real result
+    (a bye, a benching, a real dud game), not excluded here.
+
+    Args:
+        performance: e.g. :func:`weekly_performance`'s output run against a
+            full season's worth of actuals (:func:`season_actuals`) and
+            projections.
+        min_games: A player needs at least this many weeks with both a
+            real result and a real projection to appear at all — without
+            this, a single huge or tiny delta from a player who barely
+            played would dominate a season ranking meant to reflect
+            sustained performance, not a small sample.
+
+    Returns:
+        One row per player: ``player_id``, ``player_name``, ``position``,
+        ``team``, ``manager`` (as of that player's most recent counted
+        week — handles an in-season trade), ``games`` (weeks counted),
+        ``avg_projected_points``, ``avg_actual_points``, ``avg_delta``,
+        sorted by ``avg_delta`` descending. Empty when no player reaches
+        ``min_games``.
+    """
+    if performance.height == 0:
+        return pl.DataFrame(schema=_SEASON_SCHEMA)
+
+    summary = (
+        performance.sort("week")
+        .group_by("player_id")
+        .agg(
+            pl.col("player_name").last(),
+            pl.col("position").last(),
+            pl.col("team").last(),
+            pl.col("manager").last(),
+            pl.len().alias("games"),
+            pl.col("projected_points").mean().alias("avg_projected_points"),
+            pl.col("actual_points").mean().alias("avg_actual_points"),
+            pl.col("delta").mean().alias("avg_delta"),
+        )
+        .filter(pl.col("games") >= min_games)
+        .sort("avg_delta", descending=True)
+    )
+    return summary.select(list(_SEASON_SCHEMA))

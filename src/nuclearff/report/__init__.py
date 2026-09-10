@@ -4,7 +4,10 @@ from nuclearff.report.bracket import render_bracket_tree, render_playoff_bracket
 from nuclearff.report.build import write_report
 from nuclearff.report.draft import render_draft_order_table
 from nuclearff.report.draft_board import render_draft_board
-from nuclearff.report.performance import render_weekly_performance_table
+from nuclearff.report.performance import (
+    render_season_performance_table,
+    render_weekly_performance_table,
+)
 from nuclearff.report.tables import render_position_table, top_n_by_position
 from nuclearff.report.trades import (
     render_chord_diagram,
@@ -35,6 +38,7 @@ __all__ = [
     "render_manager_season_heatmap",
     "render_playoff_brackets",
     "render_position_table",
+    "render_season_performance_table",
     "render_trade_leaderboard",
     "render_trade_network",
     "render_trade_partner_diversity",

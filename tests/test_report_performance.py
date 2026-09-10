@@ -6,6 +6,7 @@ import polars as pl
 
 from nuclearff.report.performance import (
     _underperformers,
+    render_season_performance_table,
     render_weekly_performance_table,
 )
 
@@ -19,6 +20,20 @@ def _performance(rows: list[dict]) -> pl.DataFrame:
         "projected_points": pl.Float64,
         "actual_points": pl.Float64,
         "delta": pl.Float64,
+    }
+    return pl.DataFrame(rows, schema=schema)
+
+
+def _season_summary(rows: list[dict]) -> pl.DataFrame:
+    schema = {
+        "player_name": pl.String,
+        "position": pl.String,
+        "team": pl.String,
+        "manager": pl.String,
+        "games": pl.UInt32,
+        "avg_projected_points": pl.Float64,
+        "avg_actual_points": pl.Float64,
+        "avg_delta": pl.Float64,
     }
     return pl.DataFrame(rows, schema=schema)
 
@@ -181,5 +196,83 @@ def test_render_weekly_performance_table_handles_a_single_player(tmp_path):
     out_path = tmp_path / "performance.png"
 
     result = render_weekly_performance_table(performance, out_path, week=1)
+
+    assert result.is_file()
+
+
+def test_render_season_performance_table_writes_a_png(tmp_path):
+    summary = _season_summary(
+        [
+            {
+                "player_name": "Drake Maye",
+                "position": "QB",
+                "team": "NE",
+                "manager": "aperry151",
+                "games": 16,
+                "avg_projected_points": 20.6,
+                "avg_actual_points": 15.1,
+                "avg_delta": -5.5,
+            },
+            {
+                "player_name": "Ja'Marr Chase",
+                "position": "WR",
+                "team": "CIN",
+                "manager": "casitzmann",
+                "games": 15,
+                "avg_projected_points": 18.2,
+                "avg_actual_points": 22.4,
+                "avg_delta": 4.2,
+            },
+        ]
+    ).sort("avg_delta", descending=True)
+    out_path = tmp_path / "season.png"
+
+    result = render_season_performance_table(summary, out_path, season=2025)
+
+    assert result == out_path
+    assert out_path.is_file()
+    assert out_path.stat().st_size > 0
+
+
+def test_render_season_performance_table_respects_top_n(tmp_path):
+    rows = [
+        {
+            "player_name": f"Player {i}",
+            "position": "WR",
+            "team": "XX",
+            "manager": "nolmacdonald",
+            "games": 10,
+            "avg_projected_points": 10.0,
+            "avg_actual_points": float(i),
+            "avg_delta": float(i) - 10.0,
+        }
+        for i in range(20)
+    ]
+    summary = _season_summary(rows).sort("avg_delta", descending=True)
+    out_path = tmp_path / "season.png"
+
+    result = render_season_performance_table(summary, out_path, season=2025, top_n=3)
+
+    assert result.is_file()
+
+
+def test_render_season_performance_table_handles_a_single_player(tmp_path):
+    summary = _season_summary(
+        [
+            {
+                "player_name": "Drake Maye",
+                "position": "QB",
+                "team": "NE",
+                "manager": "aperry151",
+                "games": 16,
+                "avg_projected_points": 20.6,
+                "avg_actual_points": 15.1,
+                "avg_delta": -5.5,
+            }
+        ]
+    )
+    out_path = tmp_path / "season.png"
+
+    result = render_season_performance_table(summary, out_path, season=2025)
 
     assert result.is_file()
