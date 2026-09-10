@@ -670,6 +670,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were wider than the fixed widths a first pass gave them, overflowing
   into their neighbor — fixed by widening both to fit their own header
   text, the same fix #46 needed.
+- `--all-users` flag on `report trades`, `report wins`, and `report
+  draft-order` (GitHub Issue 87). Every one of these previously included
+  *every* manager who has ever appeared in the league's history, an
+  accident of never filtering `sleeper_standings` by season rather than a
+  deliberate choice. New default (`all_users=False`): only managers
+  rostered in the exact `league_id` season passed — implemented as
+  `_current_league_managers(standings, league_id)`, a filter on
+  `sleeper_standings.league_id` (each season already has its own distinct
+  `league_id`, so this needs no new Sleeper fetching). `--all-users`
+  reproduces the old behavior exactly, for detailed historical analysis.
+  `report trades` needed a different fix than `report wins`/`report
+  draft-order`: a trade is a pairwise relationship with no way to render
+  one side of an edge if that manager isn't a modeled node, so `edges` is
+  filtered once up front (both sides of a trade must be current) and
+  every downstream visualization inherits that consistently — a real,
+  stated trade-off is that a current manager's own total can be smaller
+  than their real all-time count if some of their trades were with a
+  manager who has since left. A win or a draft position, by contrast, is
+  a personal fact about one manager, not a graph edge, so `report
+  wins`/`report draft-order` instead compute from full history and only
+  filter which manager rows are shown at the end, preserving each shown
+  manager's real complete stats. Verified against this league's real
+  15-manager history: the default narrows to the 10 real managers still
+  rostered in the current season, and `nolmacdonald`'s trade count drops
+  from 14 (all-time) to 9 (current-only) — a real, visible consequence of
+  the filter working as designed, not a bug. `docs/source/user_guide.rst`
+  and `docs/source/league_trade_history.rst` updated to pass `--all-users`
+  on their existing examples, since those pages are specifically a full
+  historical walkthrough and their already-captured real output/screenshots
+  (15 managers, 22 trades) reflect the old all-time default exactly.
 
 ### Changed
 
