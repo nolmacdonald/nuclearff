@@ -144,7 +144,7 @@ def render_user_leagues_table(
     # longest name actually present, the same "don't hardcode a width real
     # data can exceed" lesson issue #46's leaderboard table already learned
     # for its own column headers.
-    max_name_len = max((len(row["league_name"]) for row in rows), default=10)
+    max_name_len = max((len(str(row["league_name"])) for row in rows), default=10)
     name_width = max(2.4, 0.16 * max_name_len)
     other_columns_width = 5.2  # avatar 0.5 + id 2.2 + type 0.8 + teams 0.7 + status 1.0
 
