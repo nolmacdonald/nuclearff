@@ -216,9 +216,18 @@ data/
 # nuclearff: local run configuration and per-league derived settings, written
 # by `config init` / `sleeper fetch-league` — personal to the machine that ran
 # them, not versioned defaults. configs/models/ (e.g. wr_default.yaml) is a
-# checked-in default and is intentionally not matched here.
+# checked-in default and is intentionally not matched here. `**/` because
+# `configs/leagues/` has a slash in the middle, so without it the pattern is
+# anchored to the repo root and misses --root'd copies like
+# examples/demo/configs/leagues/.
 /configs/nuclearff.yaml
-configs/leagues/
+**/configs/leagues/
 
 # nuclearff: downloaded images cached by dev/tables scripts (headshots, team logos)
 dev/tables/_cache/
+
+# nuclearff: examples/ notebooks' own generated run output -- `data/` above
+# already covers examples/demo/data/ (a bare pattern, matches anywhere), this
+# catches the one gap: the notebooks' own
+# `config init -o ./configs/nuclearff.yaml` cell writes outside --root.
+examples/configs/nuclearff.yaml

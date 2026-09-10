@@ -46,6 +46,12 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
 
       Detailed reference for all public classes and functions.
 
+   .. grid-item-card:: Example Notebooks
+      :link: https://github.com/nolmacdonald/nuclearff/tree/main/examples
+
+      Runnable Jupyter notebooks mirroring these docs pages, with real
+      cells executed against a real Sleeper league.
+
 .. toctree::
    :maxdepth: 2
    :hidden:

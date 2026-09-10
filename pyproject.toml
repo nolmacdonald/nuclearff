@@ -89,6 +89,10 @@ src = ["src"]
 select = ["E", "W", "F", "I", "B", "C4", "UP"]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+# Notebook cells are real, runnable CLI/URL lines, not wrappable source code.
+"examples/*.ipynb" = ["E501"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

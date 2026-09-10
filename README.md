@@ -41,6 +41,7 @@
 
 <p align="center">
   <a href="https://nolmacdonald.github.io/nuclearff"> Documentation</a> |
+  <a href="examples"> Examples</a> |
   <a href="https://github.com/nolmacdonald/nuclearff/issues"> Report Bug</a> |
   <a href="https://github.com/nolmacdonald/nuclearff/issues"> Request Feature</a>
 </p>
@@ -142,6 +143,11 @@ uv run sphinx-build -b html docs/source docs/_build/html
 ```
 
 Full documentation is available at **[nolmacdonald.github.io/nuclearff](https://nolmacdonald.github.io/nuclearff)**.
+
+## Examples
+
+The [`examples/`](examples) directory has runnable Jupyter notebooks mirroring
+the docs above, with real cells executed against a real Sleeper league.
 
 ## Contributing
 
