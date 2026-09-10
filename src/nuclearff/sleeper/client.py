@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any
@@ -320,6 +321,47 @@ class SleeperClient:
             One object per roster for that week.
         """
         return self._get_list(f"/v1/league/{league_id}/matchups/{week}")
+
+    def get_projections(
+        self,
+        season: int | str,
+        week: int,
+        *,
+        positions: Sequence[str] = ("QB", "RB", "WR", "TE"),
+        season_type: str = "regular",
+        sport: str = "nfl",
+    ) -> list[dict[str, Any]]:
+        """Return per-player weekly projections.
+
+        **Not part of the documented public API** (https://docs.sleeper.com
+        covers ``/v1/...`` only) — this is the same endpoint Sleeper's own
+        app reads. Confirmed live 2026-09-10 against 2025 week 1: a single
+        source (``company="rotowire"``), exactly one row per requested
+        position with no duplicate ``player_id`` values. See
+        ``brain/decisions.md``'s 2026-09-10 entry for why this project uses
+        an undocumented endpoint here despite the "public, documented API
+        only" posture the rest of this client holds to.
+
+        Args:
+            season: Season year, e.g. ``2026``.
+            week: Week number.
+            positions: Positions to request. Sleeper requires at least one
+                ``position[]`` query parameter — omitting it entirely
+                returns every position, including kickers/defenses this
+                project has no use for.
+            season_type: Sleeper season type, e.g. ``"regular"``.
+            sport: Sport key, such as ``"nfl"``.
+
+        Returns:
+            One object per projected player: ``player_id``, ``team``,
+            ``opponent``, ``category`` (``"proj"``), ``stats`` (a dict
+            keyed by Sleeper's own scoring vocabulary — ``rec``, ``rec_yd``,
+            ``pass_td``, ...), and ``company`` (the projection source).
+        """
+        query = "&".join(f"position[]={position}" for position in positions)
+        return self._get_list(
+            f"/projections/{sport}/{season}/{week}?season_type={season_type}&{query}"
+        )
 
     def get_transactions(self, league_id: str, week: int) -> list[dict[str, Any]]:
         """Return transactions for one week.

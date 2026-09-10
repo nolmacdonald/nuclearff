@@ -36,6 +36,7 @@ from nuclearff.sleeper import (
     SleeperClient,
     fetch_and_write_all_drafts,
     fetch_and_write_matchups,
+    fetch_and_write_projections,
     fetch_and_write_roster_players,
     fetch_and_write_standings,
     fetch_and_write_transactions,
@@ -318,6 +319,37 @@ def _cmd_sleeper_fetch_players(args: argparse.Namespace) -> int:
 
     print(f"Players:  {count}")
     print(f"Database: {db_path}")
+    return EXIT_OK
+
+
+def _cmd_sleeper_fetch_projections(args: argparse.Namespace) -> int:
+    """Fetch one week's player projections and store them in DuckDB.
+
+    Not tied to any one league — see
+    :mod:`nuclearff.sleeper.projections`'s module docstring for why this is
+    a standalone command rather than a ``fetch-league`` flag.
+
+    Args:
+        args: Parsed arguments carrying ``season``, ``week``, and
+            ``positions``.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+    config.paths.ensure()
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    season = int(args.season)
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        count = fetch_and_write_projections(
+            client, season, args.week, db_path, positions=tuple(args.positions)
+        )
+
+    print(f"Season:      {season}")
+    print(f"Week:        {args.week}")
+    print(f"Projections: {count}")
+    print(f"Database:    {db_path}")
     return EXIT_OK
 
 
@@ -1195,6 +1227,109 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_performance(args: argparse.Namespace) -> int:
+    """Render a weekly over/underperformer table: actual vs. projected points.
+
+    Reads ``sleeper_matchups`` (``sleeper fetch-league --matchups``),
+    ``sleeper_standings`` (``--standings``), ``sleeper_players``
+    (``sleeper fetch-players``), and ``sleeper_projections`` (``sleeper
+    fetch-projections``) -- all four required. The league's scoring rules
+    are fetched live via a single ``get_league`` call rather than read from
+    a possibly-stale ``configs/leagues/`` YAML, the same live-fetch posture
+    ``report auction-board`` already takes for anything scoring-sensitive.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``week``, ``out``,
+            ``top_n``, and ``all_players`` (default ``False``: only a
+            roster's actual starters; ``True``: bench players too).
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.config.league import league_config_from_sleeper
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_weekly_performance_table
+    from nuclearff.sleeper.performance import weekly_actuals, weekly_performance
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    try:
+        matchups = read_table(db_path, "sleeper_matchups")
+    except StorageError:
+        print(
+            "No sleeper_matchups table found. Run "
+            "`nuclearff sleeper fetch-league --matchups` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        standings = read_table(db_path, "sleeper_standings")
+    except StorageError:
+        print(
+            "No sleeper_standings table found. Run "
+            "`nuclearff sleeper fetch-league --standings` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        players = read_table(db_path, "sleeper_players")
+    except StorageError:
+        print(
+            "No sleeper_players table found. Run "
+            "`nuclearff sleeper fetch-players` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        projections = read_table(db_path, "sleeper_projections")
+    except StorageError:
+        print(
+            "No sleeper_projections table found. Run `nuclearff sleeper "
+            f"fetch-projections --season <season> --week {args.week}` first."
+        )
+        return EXIT_ERROR
+
+    actuals = weekly_actuals(matchups, standings, args.league_id, args.week)
+    if actuals.height == 0:
+        print(
+            f"No completed matchups found for league {args.league_id} week {args.week}."
+        )
+        return EXIT_ERROR
+
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        league_json = client.get_league(args.league_id)
+    league_config = league_config_from_sleeper(league_json)
+
+    performance = weekly_performance(
+        actuals,
+        projections,
+        players,
+        league_config.scoring,
+        starters_only=not args.all_players,
+    )
+    if performance.height == 0:
+        print(
+            "No players with both a completed result and a Sleeper "
+            "projection were found for that week."
+        )
+        return EXIT_ERROR
+
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir
+        / f"{args.league_id}-week{args.week}-performance.png"
+    )
+    written = render_weekly_performance_table(
+        performance, out_path, week=args.week, top_n=args.top_n
+    )
+
+    print(f"Players:  {performance.height}")
+    print(f"Report:   {written}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -1341,6 +1476,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-fetch even if the on-disk player cache is still fresh",
     )
     fetch_players.set_defaults(func=_cmd_sleeper_fetch_players)
+
+    fetch_projections = sleeper_commands.add_parser(
+        "fetch-projections",
+        help="Fetch one week's player projections into a local DuckDB table",
+    )
+    fetch_projections.add_argument(
+        "--season", required=True, help="Season year, e.g. 2026"
+    )
+    fetch_projections.add_argument(
+        "--week", required=True, type=int, help="Week number"
+    )
+    fetch_projections.add_argument(
+        "--positions",
+        nargs="+",
+        default=["QB", "RB", "WR", "TE"],
+        help="Positions to fetch (default: QB RB WR TE)",
+    )
+    fetch_projections.set_defaults(func=_cmd_sleeper_fetch_projections)
 
     user_leagues = sleeper_commands.add_parser(
         "user-leagues", help="List a Sleeper user's leagues for a season"
@@ -1510,6 +1663,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     draft_order.add_argument("--all-users", action="store_true", help=all_users_help)
     draft_order.set_defaults(func=_cmd_report_draft_order)
+
+    performance = report_commands.add_parser(
+        "performance",
+        help=(
+            "Render a week's overachievers/underperformers: actual vs. "
+            "projected points"
+        ),
+    )
+    performance.add_argument("league_id", help="Sleeper league identifier")
+    performance.add_argument("--week", required=True, type=int, help="Week number")
+    performance.add_argument(
+        "--top-n",
+        type=int,
+        default=10,
+        help="How many players to show per section (default: 10)",
+    )
+    performance.add_argument(
+        "--all-players",
+        action="store_true",
+        help="Include bench players, not just starters (default: starters only)",
+    )
+    performance.add_argument(
+        "--out",
+        default=None,
+        help=(
+            "Output PNG path (default: "
+            "<artifacts>/<league_id>-week<week>-performance.png)"
+        ),
+    )
+    performance.set_defaults(func=_cmd_report_performance)
 
     user_leagues_report = report_commands.add_parser(
         "user-leagues",

@@ -726,6 +726,48 @@ def test_sleeper_fetch_players(tmp_path, capsys):
 
 
 @responses.activate
+def test_sleeper_fetch_projections(tmp_path, capsys):
+    """fetch-projections stores one week's projections in DuckDB."""
+    import duckdb
+
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/1",
+        json=[
+            {
+                "player_id": "4046",
+                "team": "KC",
+                "position": "QB",
+                "company": "rotowire",
+                "stats": {"pass_yd": 275.0, "pass_td": 2.1},
+            }
+        ],
+    )
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "sleeper",
+            "fetch-projections",
+            "--season",
+            "2025",
+            "--week",
+            "1",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Projections: 1" in capsys.readouterr().out
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with duckdb.connect(str(db_path)) as conn:
+        (team,) = conn.execute(
+            "SELECT team FROM sleeper_projections WHERE player_id = '4046'"
+        ).fetchone()
+    assert team == "KC"
+
+
+@responses.activate
 def test_report_playoff_bracket_renders_winners_and_losers_pngs(tmp_path, capsys):
     """playoff-bracket reads the standings/matches tables and writes PNGs."""
     from nuclearff.sleeper import SleeperClient
@@ -1815,3 +1857,175 @@ def test_report_draft_order_reports_no_draft_picks_table(tmp_path, capsys):
 
     assert exit_code == EXIT_ERROR
     assert "No sleeper_draft_picks table found" in capsys.readouterr().out
+
+
+# --- report performance -------------------------------------------------------
+
+
+@responses.activate
+def test_report_performance_renders_a_png(tmp_path, capsys, league_payload):
+    """One overachiever, one underperformer, scored under this league's real
+    scoring rules (rec_yd=0.1, pass_yd=0.04, pass_td=6.0, pass_int=-2.0, from
+    the real captured league fixture)."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.players import write_players_table
+    from nuclearff.sleeper.projections import fetch_and_write_projections
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters",
+        json=[
+            {"roster_id": 1, "owner_id": "u1"},
+            {"roster_id": 2, "owner_id": "u2"},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u2", "display_name": "hyoga10"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1",
+        json=[
+            {
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 9.1,
+                "starters": ["4046"],
+                "starters_points": [9.1],
+                "players_points": {"4046": 9.1},
+            },
+            {
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 31.4,
+                "starters": ["9509"],
+                "starters_points": [31.4],
+                "players_points": {"9509": 31.4},
+            },
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2026/1",
+        json=[
+            {
+                "player_id": "4046",
+                "team": "NE",
+                "position": "QB",
+                "company": "rotowire",
+                "stats": {"pass_yd": 250.0, "pass_td": 2.0, "pass_int": 1.0},
+            },
+            {
+                "player_id": "9509",
+                "team": "CIN",
+                "position": "WR",
+                "company": "rotowire",
+                "stats": {"rec": 5.0, "rec_yd": 60.0, "rec_td": 0.0},
+            },
+        ],
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [{"league_id": LEAGUE_ID, "season": 2026}]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+        fetch_and_write_projections(client, 2026, 1, db_path)
+
+    write_players_table(
+        {
+            "4046": {"full_name": "Drake Maye", "position": "QB", "team": "NE"},
+            "9509": {"full_name": "Ja'Marr Chase", "position": "WR", "team": "CIN"},
+        },
+        db_path,
+    )
+
+    out_path = tmp_path / "performance.png"
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "performance",
+            LEAGUE_ID,
+            "--week",
+            "1",
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Players:  2" in capsys.readouterr().out
+    assert out_path.is_file()
+
+
+@responses.activate
+def test_report_performance_reports_no_projections_table(tmp_path, capsys):
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.players import write_players_table
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users",
+        json=[{"user_id": "u1", "display_name": "nolmacdonald"}],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1",
+        json=[
+            {
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 9.1,
+                "starters": ["4046"],
+                "starters_points": [9.1],
+                "players_points": {"4046": 9.1},
+            }
+        ],
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [{"league_id": LEAGUE_ID, "season": 2026}]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+    write_players_table({"4046": {"full_name": "Drake Maye"}}, db_path)
+
+    exit_code = main(
+        ["--root", str(tmp_path), "report", "performance", LEAGUE_ID, "--week", "1"]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "No sleeper_projections table found" in capsys.readouterr().out
+
+
+def test_report_performance_reports_no_matchups_table(tmp_path, capsys):
+    exit_code = main(
+        ["--root", str(tmp_path), "report", "performance", "1", "--week", "1"]
+    )
+
+    assert exit_code == EXIT_ERROR
+    assert "No sleeper_matchups table found" in capsys.readouterr().out
