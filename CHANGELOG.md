@@ -620,6 +620,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`SleeperClient.get_user`, one call per manager) — `sleeper_standings`
   has no persisted avatar id, the same live-lookup posture `report
   draft-board` already has.
+- Real rendered PNGs embedded throughout `docs/source/user_guide.rst` and
+  `docs/source/league_trade_history.rst` (GitHub Issue 83) via `.. figure::`
+  directives — every prior page described its charts in prose only. New
+  `docs/source/_static/screenshots/` holds the committed, pre-rendered
+  images (Sphinx builds have no live Sleeper account or DuckDB cache to
+  render against, so these are captured-once snapshots, the same posture
+  every other real-data example on these pages already has). All 16 images
+  are real: `nolmacdonald`'s real 6-season league (`1367225133634191360`)
+  for all ten `league_trade_history.rst` visualizations plus the draft
+  board and playoff bracket, `nolmacdonald`'s real 18-league account for
+  the league-avatar table and cumulative-wins chart, and a different real
+  league on the same account (`Freeman Forever League`, a real auction
+  draft) for the auction-board table — `NUCLEARFF REDRAFT`, this page's
+  running example everywhere else, runs a snake draft and was never a
+  usable demo for that one command. Also added two new prose sections,
+  "League avatar table" and "Cumulative wins", for `report user-leagues`
+  (issue #77) and `report wins` (issue #79) — neither had any documentation
+  at all before this. While auditing every section for a real command to
+  screenshot, found and fixed two other stale claims: the draft-board
+  section still said "currently in-progress" about a draft that has since
+  gone to completion (150/150 picks, confirmed live), and the trade
+  leaderboard section still said a manager has "no headshot URL anywhere in
+  this project's data model" — true when written, false since issue #77.
 
 ### Changed
 
