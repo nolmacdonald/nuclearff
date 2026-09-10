@@ -700,6 +700,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on their existing examples, since those pages are specifically a full
   historical walkthrough and their already-captured real output/screenshots
   (15 managers, 22 trades) reflect the old all-time default exactly.
+- `examples/` directory (GitHub Issue 89): three runnable Jupyter notebooks —
+  `00_getting_started.ipynb`, `01_user_guide.ipynb`,
+  `02_league_trade_history.ipynb` — mirroring the corresponding docs pages,
+  built via `nbformat` rather than hand-edited `.ipynb` JSON, with every cell
+  actually executed against the real `NUCLEARFF REDRAFT` league
+  (`1367225133634191360`) rather than invented output. `examples/README.md`
+  documents how to run and regenerate them; `examples/build_notebooks.py` is
+  the committed generation script. Surfaced two real, documented gotchas
+  along the way: passing `--root ./data` doubles into `./data/data/...`
+  since `PathsConfig.data` defaults to a fixed `data` subdirectory relative
+  to root (avoided by using a non-`data`-named root, `./demo`, matching the
+  docs' own convention), and a DuckDB read-only connection opened before a
+  later `nuclearff` subprocess call won't see tables that call writes —
+  worked around by reconnecting immediately before each query rather than
+  holding one connection open across cells. `.gitignore`'s `configs/leagues/`
+  pattern was also fixed to `**/configs/leagues/`: the un-prefixed form has a
+  slash in the middle, so it was anchored to the repo root and silently
+  missed `--root`'d copies like `examples/demo/configs/leagues/`.
 
 ### Changed
 
