@@ -34,6 +34,7 @@ from nuclearff.nflverse import configure_cache as configure_nflverse_cache
 from nuclearff.nflverse import load_ff_playerids
 from nuclearff.sleeper import (
     SleeperClient,
+    fetch_and_write_all_drafts,
     fetch_and_write_matchups,
     fetch_and_write_roster_players,
     fetch_and_write_standings,
@@ -171,7 +172,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     Args:
         args: Parsed arguments carrying ``league_id``, ``history``,
             ``standings``, ``matchups``, ``transactions``, ``roster_players``,
-            ``max_seasons``, and ``max_week``.
+            ``drafts``, ``max_seasons``, and ``max_week``.
 
     Returns:
         An exit code.
@@ -188,6 +189,7 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
             or args.matchups
             or args.transactions
             or args.roster_players
+            or args.drafts
         ):
             leagues = walk_league_chain(
                 client, args.league_id, max_seasons=args.max_seasons
@@ -216,6 +218,9 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
             roster_player_count = fetch_and_write_roster_players(
                 client, leagues, db_path
             )
+
+        if args.drafts:
+            draft_pick_count = fetch_and_write_all_drafts(client, leagues, db_path)
 
     target = write_snapshot(snapshot, config.paths.raw_dir)
 
@@ -277,6 +282,17 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
     if args.roster_players:
         print(f"\nRoster players: {roster_player_count}")
         if not (args.history or args.standings or args.matchups or args.transactions):
+            print(f"Database: {db_path}")
+
+    if args.drafts:
+        print(f"\nDraft picks: {draft_pick_count}")
+        if not (
+            args.history
+            or args.standings
+            or args.matchups
+            or args.transactions
+            or args.roster_players
+        ):
             print(f"Database: {db_path}")
 
     return EXIT_OK
@@ -1039,6 +1055,61 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_draft_order(args: argparse.Namespace) -> int:
+    """Render a manager's historical draft-order table.
+
+    Reads ``sleeper_draft_picks`` (``sleeper fetch-league --drafts``) and
+    ``sleeper_standings`` (``--standings``) -- both required, same posture
+    as ``report wins``.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``out``.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_draft_order_table
+    from nuclearff.sleeper.draft import draft_order_stats
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    try:
+        picks = read_table(db_path, "sleeper_draft_picks")
+    except StorageError:
+        print(
+            "No sleeper_draft_picks table found. Run "
+            "`nuclearff sleeper fetch-league --drafts` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        standings = read_table(db_path, "sleeper_standings")
+    except StorageError:
+        print(
+            "No sleeper_standings table found. Run "
+            "`nuclearff sleeper fetch-league --standings` first."
+        )
+        return EXIT_ERROR
+
+    stats = draft_order_stats(picks, standings)
+    if stats.height == 0:
+        print("No resolvable round-1 draft picks found for any manager.")
+        return EXIT_ERROR
+
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir / f"{args.league_id}-draft-order.png"
+    )
+    written = render_draft_order_table(stats, out_path)
+
+    print(f"Managers:    {stats.height}")
+    print(f"Draft order: {written}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -1148,13 +1219,21 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     fetch.add_argument(
+        "--drafts",
+        action="store_true",
+        help=(
+            "Also fetch every draft per season (implies --history) and "
+            "write picks to DuckDB"
+        ),
+    )
+    fetch.add_argument(
         "--max-seasons",
         type=int,
         default=DEFAULT_MAX_SEASONS,
         help=(
             f"Maximum seasons to walk when --history, --standings, "
-            f"--matchups, --transactions, or --roster-players is set "
-            f"(default: {DEFAULT_MAX_SEASONS})"
+            f"--matchups, --transactions, --roster-players, or --drafts is "
+            f"set (default: {DEFAULT_MAX_SEASONS})"
         ),
     )
     fetch.add_argument(
@@ -1325,6 +1404,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output PNG path (default: <artifacts>/<league_id>-wins.png)",
     )
     wins.set_defaults(func=_cmd_report_wins)
+
+    draft_order = report_commands.add_parser(
+        "draft-order",
+        help="Render a manager's historical draft-order table",
+    )
+    draft_order.add_argument("league_id", help="Sleeper league identifier")
+    draft_order.add_argument(
+        "--out",
+        default=None,
+        help="Output PNG path (default: <artifacts>/<league_id>-draft-order.png)",
+    )
+    draft_order.set_defaults(func=_cmd_report_draft_order)
 
     user_leagues_report = report_commands.add_parser(
         "user-leagues",
