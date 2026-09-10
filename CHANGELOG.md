@@ -577,6 +577,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `"TEXAS BOYS \U0001f920"`) rendered as a missing-glyph box under
   matplotlib's bundled font; stripped for the rendered label rather than
   adding a new emoji-font dependency for one cosmetic case.
+- `nuclearff report wins <league_id>` (GitHub Issue 79): cumulative wins
+  over time, one step-chart line per manager across the league's full
+  multi-season history, each line ending in that manager's real Sleeper
+  headshot (`OffsetImage`/`AnnotationBbox` — matplotlib's mechanism for
+  placing a small image at a data point, not used anywhere in this repo
+  before now) rather than a text label, styled after a reference chart
+  Nolan shared (cumulative EPA per QB, one photo per line). New module
+  `nuclearff.sleeper.wins`: `weekly_results` derives a per-week win/loss/tie
+  from `sleeper_matchups`' raw `points` (nothing stores this directly —
+  compares the two rosters sharing a `(league_id, week, matchup_id)` group,
+  skipping a bye week or any group that isn't exactly two rosters rather
+  than guessing), and `cumulative_wins` joins in `sleeper_standings.
+  display_name` and assigns each manager their *own* game index (1, 2, 3,
+  ... their own real game count, not a league-wide week number) so a
+  manager who joined partway through still starts at game 1. A tie neither
+  adds nor subtracts, matching Sleeper's own separate `ties` counter.
+  Extends issue #50's exact end-of-line label-declutter technique (sorted
+  labels pushed apart by a minimum gap in axes-fraction y-space, connected
+  to the real data point by a leader line) — but that technique's fixed gap
+  broke rendering against this league's real 15 managers: 15 image-sized
+  gaps exceeded the axes' full available range, so the top few images
+  cascaded above the axes, through the title, and off the top of the
+  figure entirely. Fixed by sizing the gap to the real number of managers
+  and rescaling the whole placed set back inside a safe band if it still
+  overflows, guaranteeing every image renders inside the figure regardless
+  of how many managers there are. Also fixed: the title and subtitle text
+  directly overlapping (no `pad` reserved between them — copied the
+  working convention `render_position_table` already uses) and images at
+  the real rightmost game number clipped by the figure's own edge (fixed
+  with extra right-side axis margin, since every image extends rightward
+  from its anchor point). **Also fixes a real, latent bug in
+  `nuclearff.duckdb_io.read_table`**, exposed because this issue is the
+  first code ever to read `sleeper_matchups` back after writing it:
+  `custom_points` is `None` for well over Polars' default 100-row schema-
+  inference sample before the first real float appears, so `read_table`
+  inferred the column as `Null`-typed and then raised `ComputeError` the
+  moment a real value showed up later in the table. Fixed with
+  `infer_schema_length=None` (scan every row), a latent risk for every
+  table this function reads, not something new to matchups specifically.
+  A manager's headshot is resolved live per `sleeper_standings.owner_id`
+  (`SleeperClient.get_user`, one call per manager) — `sleeper_standings`
+  has no persisted avatar id, the same live-lookup posture `report
+  draft-board` already has.
 
 ### Changed
 

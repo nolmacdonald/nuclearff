@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import duckdb
+import polars as pl
 import pytest
 
 from nuclearff.duckdb_io import read_table, replace_table
@@ -77,3 +78,19 @@ def test_read_table_rejects_a_bad_table_name(tmp_path):
     """Reading also validates the table name before it reaches SQL."""
     with pytest.raises(ValueError, match="plain identifier"):
         read_table(tmp_path / "test.duckdb", "widgets; DROP TABLE widgets;")
+
+
+def test_read_table_infers_a_nullable_float_column_past_the_first_100_rows(tmp_path):
+    """GitHub Issue 79 regression: a real `sleeper_matchups.custom_points`-shaped
+    column (`None` for every one of the first 100+ rows, a real float only much
+    later) must not make Polars' sampled schema inference guess `Null` and then
+    raise `ComputeError` on the first real value."""
+    db_path = tmp_path / "test.duckdb"
+    create_sql = "CREATE TABLE {table} (id INTEGER, points DOUBLE)"
+    rows = [[i, None] for i in range(150)] + [[150, 146.539993]]
+
+    replace_table(db_path, "matchups", create_sql, ("id", "points"), rows)
+    frame = read_table(db_path, "matchups")
+
+    assert frame.schema["points"] == pl.Float64
+    assert frame.filter(pl.col("id") == 150)["points"].item() == 146.539993

@@ -306,11 +306,12 @@ def render_trade_leaderboard(
 
     Follows :mod:`nuclearff.report.tables`' PNG-table conventions (styled
     columns, ``plottable``, a left-aligned bold title) but without
-    circle-cropped headshots: unlike a player, a Sleeper manager has no
-    headshot URL anywhere in this project's data model, only an avatar id
-    that nothing currently persists
-    (:func:`nuclearff.sleeper.client.SleeperClient.avatar_url` exists but is
-    unwired) -- out of scope here, not an oversight.
+    circle-cropped headshots. A manager avatar is resolvable --
+    :func:`nuclearff.sleeper.client.SleeperClient.avatar_url` plus a raw
+    Sleeper user's ``avatar`` field, the same way issues #77 and #79 already
+    wire up a league's and a manager's avatar elsewhere -- this table
+    specifically just doesn't use one, to stay a plain reference table
+    rather than duplicate #79's photo treatment.
 
     Args:
         counts: One row per manager, with ``manager``, ``trades``,

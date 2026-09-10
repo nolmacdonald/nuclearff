@@ -109,4 +109,14 @@ def read_table(db_path: str | Path, table_name: str) -> pl.DataFrame:
     except duckdb.Error as exc:
         raise StorageError(table_name, str(db_path), str(exc)) from exc
 
-    return pl.DataFrame(rows, schema=columns, orient="row")
+    # `infer_schema_length=None` (scan every row, not just the default
+    # first 100): `sleeper_matchups.custom_points` is a real column where
+    # every row is `None` for far more than 100 rows before the first real
+    # float ever appears -- Polars' default sampled inference decided the
+    # column was `Null`-typed from that leading run, then raised
+    # `ComputeError: could not append value ... of type: f64` the moment a
+    # real value showed up later. `sleeper_matchups` was never read back
+    # through this function before GitHub Issue 79 wired up the first
+    # reader of it, so this was a real, latent bug in every table read
+    # here, not something new to matchups specifically.
+    return pl.DataFrame(rows, schema=columns, orient="row", infer_schema_length=None)
