@@ -534,7 +534,7 @@ def league_config_from_sleeper(league_json: dict[str, Any]) -> LeagueConfig:
             league_id=str(league_json["league_id"]),
             name=str(league_json.get("name") or "unknown"),
             season=int(league_json["season"]),
-            num_teams=int(num_teams),  # type: ignore[arg-type]
+            num_teams=int(num_teams),  # ty: ignore[invalid-argument-type]
             scoring=ScoringSettings.from_sleeper(league_json.get("scoring_settings")),
             roster=RosterSlots.from_sleeper(league_json.get("roster_positions")),
             best_ball=bool(settings.get("best_ball")),
