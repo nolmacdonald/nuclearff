@@ -11,13 +11,16 @@ HTTP is mocked with ``responses``.
 from __future__ import annotations
 
 import duckdb
+import polars as pl
 import pytest
 import responses
 
 from nuclearff.sleeper import SleeperClient
 from nuclearff.sleeper.draft import (
     TABLE_NAME,
+    draft_order_stats,
     draft_pick_rows,
+    fetch_and_write_all_drafts,
     fetch_and_write_draft_picks,
 )
 from tests.conftest import TEST_BASE_URL
@@ -164,3 +167,208 @@ def test_fetch_and_write_draft_picks_before_any_pick_is_made(client, tmp_path):
     count = fetch_and_write_draft_picks(client, DRAFT_ID, db_path)
 
     assert count == 0
+
+
+# --- fetch_and_write_all_drafts (GitHub Issue 85) -----------------------
+
+_OTHER_DRAFT_ID = "999"
+_OTHER_LEAGUE_ID = "888"
+_OTHER_DRAFT = {
+    "draft_id": _OTHER_DRAFT_ID,
+    "league_id": _OTHER_LEAGUE_ID,
+    "season": "2025",
+    "type": "snake",
+}
+_OTHER_PICKS = [
+    {
+        "draft_id": _OTHER_DRAFT_ID,
+        "pick_no": 1,
+        "round": 1,
+        "draft_slot": 3,
+        "roster_id": 1,
+        "picked_by": "u1",
+        "player_id": "1",
+        "metadata": {},
+    },
+]
+
+
+@responses.activate
+def test_fetch_and_write_all_drafts_does_not_erase_an_earlier_season(client, tmp_path):
+    """The bug fetch_and_write_draft_picks would have if called in a loop."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[{"draft_id": DRAFT_ID}]
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=PICKS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OTHER_LEAGUE_ID}/drafts",
+        json=[{"draft_id": _OTHER_DRAFT_ID}],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{_OTHER_DRAFT_ID}", json=_OTHER_DRAFT)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/{_OTHER_DRAFT_ID}/picks", json=_OTHER_PICKS
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    leagues = [
+        {"league_id": LEAGUE_ID, "season": 2026},
+        {"league_id": _OTHER_LEAGUE_ID, "season": 2025},
+    ]
+
+    count = fetch_and_write_all_drafts(client, leagues, db_path)
+
+    assert count == len(PICKS) + len(_OTHER_PICKS)
+    with duckdb.connect(str(db_path)) as conn:
+        seasons = conn.execute(f"SELECT DISTINCT season FROM {TABLE_NAME}").fetchall()
+    assert {s for (s,) in seasons} == {2026, 2025}
+
+
+@responses.activate
+def test_fetch_and_write_all_drafts_skips_a_league_whose_drafts_fail(client, tmp_path):
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[{"draft_id": DRAFT_ID}]
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=PICKS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{_OTHER_LEAGUE_ID}/drafts", status=500)
+    db_path = tmp_path / "nuclearff.duckdb"
+    leagues = [
+        {"league_id": LEAGUE_ID, "season": 2026},
+        {"league_id": _OTHER_LEAGUE_ID, "season": 2025},
+    ]
+
+    count = fetch_and_write_all_drafts(client, leagues, db_path)
+
+    assert count == len(PICKS)
+
+
+# --- draft_order_stats (GitHub Issue 85) ---------------------------------
+
+
+def _picks(rows: list[dict]) -> pl.DataFrame:
+    schema = {
+        "league_id": pl.String,
+        "season": pl.Int64,
+        "draft_id": pl.String,
+        "round": pl.Int64,
+        "draft_slot": pl.Int64,
+        "roster_id": pl.Int64,
+    }
+    return pl.DataFrame(rows, schema=schema)
+
+
+def _standings(rows: list[dict]) -> pl.DataFrame:
+    schema = {"league_id": pl.String, "roster_id": pl.Int64, "display_name": pl.String}
+    return pl.DataFrame(rows, schema=schema)
+
+
+def test_draft_order_stats_computes_avg_first_and_last():
+    """A manager who drafted 1st once (of 4 real teams) and last once."""
+    picks = _picks(
+        [
+            {
+                "league_id": "L1",
+                "season": 2024,
+                "draft_id": "D1",
+                "round": 1,
+                "draft_slot": 1,
+                "roster_id": 1,
+            },
+            {
+                "league_id": "L2",
+                "season": 2025,
+                "draft_id": "D2",
+                "round": 1,
+                "draft_slot": 4,
+                "roster_id": 1,
+            },
+            # Other real rosters in each draft, needed so draft_slot's real
+            # per-season max (the "last pick" comparison) isn't just this
+            # one manager's own value.
+            {
+                "league_id": "L1",
+                "season": 2024,
+                "draft_id": "D1",
+                "round": 1,
+                "draft_slot": 4,
+                "roster_id": 2,
+            },
+            {
+                "league_id": "L2",
+                "season": 2025,
+                "draft_id": "D2",
+                "round": 1,
+                "draft_slot": 1,
+                "roster_id": 2,
+            },
+        ]
+    )
+    standings = _standings(
+        [
+            {"league_id": "L1", "roster_id": 1, "display_name": "nolmacdonald"},
+            {"league_id": "L2", "roster_id": 1, "display_name": "nolmacdonald"},
+            {"league_id": "L1", "roster_id": 2, "display_name": "hyoga10"},
+            {"league_id": "L2", "roster_id": 2, "display_name": "hyoga10"},
+        ]
+    )
+
+    stats = draft_order_stats(picks, standings).filter(
+        pl.col("manager") == "nolmacdonald"
+    )
+
+    assert stats["seasons_drafted"].item() == 2
+    assert stats["avg_draft_position"].item() == 2.5
+    assert stats["times_first_pick"].item() == 1
+    assert stats["times_last_pick"].item() == 1
+
+
+def test_draft_order_stats_ignores_rounds_after_the_first():
+    """A roster's draft_slot is constant across rounds -- reading only round 1
+    must not double-count a manager's seasons."""
+    picks = _picks(
+        [
+            {
+                "league_id": "L1",
+                "season": 2024,
+                "draft_id": "D1",
+                "round": 1,
+                "draft_slot": 1,
+                "roster_id": 1,
+            },
+            {
+                "league_id": "L1",
+                "season": 2024,
+                "draft_id": "D1",
+                "round": 2,
+                "draft_slot": 1,
+                "roster_id": 1,
+            },
+        ]
+    )
+    standings = _standings([{"league_id": "L1", "roster_id": 1, "display_name": "a"}])
+
+    stats = draft_order_stats(picks, standings)
+
+    assert stats["seasons_drafted"].item() == 1
+
+
+def test_draft_order_stats_skips_an_unresolvable_roster():
+    picks = _picks(
+        [
+            {
+                "league_id": "L1",
+                "season": 2024,
+                "draft_id": "D1",
+                "round": 1,
+                "draft_slot": 1,
+                "roster_id": 99,
+            },
+        ]
+    )
+    standings = _standings([{"league_id": "L1", "roster_id": 1, "display_name": "a"}])
+
+    assert draft_order_stats(picks, standings).height == 0
+
+
+def test_draft_order_stats_handles_no_picks():
+    assert draft_order_stats(_picks([]), _standings([])).height == 0

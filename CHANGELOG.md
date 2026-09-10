@@ -643,6 +643,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gone to completion (150/150 picks, confirmed live), and the trade
   leaderboard section still said a manager has "no headshot URL anywhere in
   this project's data model" — true when written, false since issue #77.
+- `nuclearff sleeper fetch-league --drafts` and `nuclearff report
+  draft-order <league_id>` (GitHub Issue 85): a manager's historical
+  draft-order table — seasons drafted, average draft position, times
+  drafted 1st overall, times drafted last. New
+  `sleeper.draft.fetch_and_write_all_drafts` fixes a real gap: the
+  existing `fetch_and_write_draft_picks` takes a single `draft_id` and
+  replaces its table wholesale on every call, so calling it once per
+  season in a loop would silently erase every earlier season's rows. The
+  new function collects every season's picks first (a league can have
+  more than one draft per season — `get_league_drafts`'s own docstring
+  already says "every draft associated with a league", not just one) and
+  writes them in one call, the same multi-season accumulation shape
+  `fetch_and_write_matchups` already uses. New
+  `sleeper.draft.draft_order_stats` computes the aggregates from round-1
+  picks only (a roster's `draft_slot` is constant across every round of
+  one draft, so round 1 alone already gives the season's full order,
+  confirmed live: this league's real 6 seasons produce `times_first_pick`
+  and `times_last_pick` columns that each sum to exactly 6 across all 15
+  managers) joined to `sleeper_standings.display_name`. "Last pick" is
+  season-relative, not a fixed number — a season's own real maximum
+  `draft_slot`, since team count can change season to season. Rendering
+  against this league's real 900 draft picks (150 picks x 6 seasons)
+  surfaced the same class of bug issue #46's leaderboard table already
+  hit once: two column headers ("SEASONS DRAFTED", "AVG DRAFT POSITION")
+  were wider than the fixed widths a first pass gave them, overflowing
+  into their neighbor — fixed by widening both to fit their own header
+  text, the same fix #46 needed.
 
 ### Changed
 

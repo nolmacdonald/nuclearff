@@ -2,6 +2,7 @@
 
 from nuclearff.report.bracket import render_bracket_tree, render_playoff_brackets
 from nuclearff.report.build import write_report
+from nuclearff.report.draft import render_draft_order_table
 from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.tables import render_position_table, top_n_by_position
 from nuclearff.report.trades import (
@@ -28,6 +29,7 @@ __all__ = [
     "render_cumulative_trades",
     "render_cumulative_wins",
     "render_draft_board",
+    "render_draft_order_table",
     "render_manager_pair_leaderboard",
     "render_manager_season_heatmap",
     "render_playoff_brackets",

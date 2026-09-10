@@ -20,7 +20,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import polars as pl
+
 from nuclearff.duckdb_io import replace_table
+from nuclearff.exceptions import SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
 logger = logging.getLogger(__name__)
@@ -154,3 +157,154 @@ def fetch_and_write_draft_picks(
 
     logger.info("Wrote %d draft pick row(s) to %s", count, db_path)
     return count
+
+
+def fetch_and_write_all_drafts(
+    client: SleeperClient,
+    leagues: list[dict[str, Any]],
+    db_path: str | Path,
+    *,
+    table_name: str = TABLE_NAME,
+) -> int:
+    """Fetch every draft for every league in a chain and persist them all.
+
+    :func:`fetch_and_write_draft_picks` calls :func:`nuclearff.duckdb_io.
+    replace_table` with only a single draft's rows -- calling it once per
+    season in a loop would silently erase every earlier season's rows,
+    since ``replace_table`` replaces its table wholesale rather than
+    upserting (see that function's own docstring). This function collects
+    every season's picks first and writes them in one call, the same
+    multi-season accumulation shape
+    :func:`nuclearff.sleeper.matchups.fetch_and_write_matchups` already
+    uses.
+
+    A league can have more than one draft in a season (Sleeper's own
+    :meth:`SleeperClient.get_league_drafts` returns "every draft associated
+    with a league", not just one) -- every draft found is fetched and
+    included, not just the first. A season/league whose drafts fail to
+    fetch is logged and skipped, matching
+    :func:`fetch_and_write_matchups`'s posture of not aborting the whole
+    walk over one bad hop.
+
+    Args:
+        client: A configured Sleeper client.
+        leagues: Raw league payloads for every season to cover, as returned
+            by :func:`nuclearff.sleeper.leagues.walk_league_chain`.
+        db_path: Path to the DuckDB database file, created if absent.
+        table_name: Destination table.
+
+    Returns:
+        The number of pick rows written, across every season and draft.
+    """
+    rows: list[dict[str, Any]] = []
+
+    for league in leagues:
+        league_id = str(league["league_id"])
+        try:
+            drafts = client.get_league_drafts(league_id)
+        except SleeperAPIError as exc:
+            logger.warning("Could not fetch drafts for league %s: %s", league_id, exc)
+            continue
+
+        for draft_summary in drafts:
+            draft_id = draft_summary.get("draft_id")
+            if not draft_id:
+                continue
+            try:
+                draft = client.get_draft(draft_id)
+                picks = client.get_draft_picks(draft_id)
+            except SleeperAPIError as exc:
+                logger.warning(
+                    "Could not fetch draft %s for league %s: %s",
+                    draft_id,
+                    league_id,
+                    exc,
+                )
+                continue
+            rows.extend(draft_pick_rows(draft, picks))
+
+    count = replace_table(
+        db_path,
+        table_name,
+        _CREATE_TABLE_SQL,
+        _COLUMNS,
+        [[row[column] for column in _COLUMNS] for row in rows],
+    )
+
+    logger.info(
+        "Wrote %d draft pick row(s) across %d league(s) to %s",
+        count,
+        len(leagues),
+        db_path,
+    )
+    return count
+
+
+_DRAFT_ORDER_SCHEMA = {
+    "manager": pl.String,
+    "seasons_drafted": pl.UInt32,
+    "avg_draft_position": pl.Float64,
+    "times_first_pick": pl.UInt32,
+    "times_last_pick": pl.UInt32,
+}
+
+
+def draft_order_stats(picks: pl.DataFrame, standings: pl.DataFrame) -> pl.DataFrame:
+    """Per-manager draft-order history: average position, times 1st, times last.
+
+    Uses each season's round-1 picks only -- a roster's ``draft_slot`` is
+    constant across every round of one draft (Sleeper's own resolved
+    value, not derived from an assumed alternating snake -- see this
+    module's docstring), so round 1 alone already gives the season's full
+    draft order per manager, with no risk of double-counting a manager's
+    seasons by reading every round.
+
+    "Last pick" is season-relative, not a fixed number: a league's team
+    count can change season to season, so a season's own real maximum
+    ``draft_slot`` (not a global constant) is what "last" is compared
+    against.
+
+    Args:
+        picks: ``sleeper_draft_picks`` rows, e.g.
+            :func:`fetch_and_write_all_drafts`'s output read back via
+            :func:`nuclearff.duckdb_io.read_table`.
+        standings: ``sleeper_standings`` rows -- needs ``league_id``,
+            ``roster_id``, ``display_name``.
+
+    Returns:
+        One row per manager: ``manager``, ``seasons_drafted``,
+        ``avg_draft_position``, ``times_first_pick``, ``times_last_pick``.
+        A roster with no resolvable ``display_name`` contributes no row. A
+        manager who was only in the league for some of its seasons has
+        stats computed only over the seasons they actually drafted in.
+    """
+    if picks.height == 0:
+        return pl.DataFrame(schema=_DRAFT_ORDER_SCHEMA)
+
+    round_one = picks.filter(pl.col("round") == 1).select(
+        "league_id", "season", "draft_id", "roster_id", "draft_slot"
+    )
+    season_size = round_one.group_by(["league_id", "draft_id"]).agg(
+        pl.col("draft_slot").max().alias("last_slot")
+    )
+    positioned = round_one.join(season_size, on=["league_id", "draft_id"])
+
+    names = standings.select("league_id", "roster_id", "display_name")
+    joined = (
+        positioned.join(names, on=["league_id", "roster_id"], how="inner")
+        .filter(pl.col("display_name").is_not_null())
+        .rename({"display_name": "manager"})
+    )
+
+    return (
+        joined.group_by("manager")
+        .agg(
+            pl.len().alias("seasons_drafted"),
+            pl.col("draft_slot").mean().alias("avg_draft_position"),
+            (pl.col("draft_slot") == 1).sum().alias("times_first_pick"),
+            (pl.col("draft_slot") == pl.col("last_slot"))
+            .sum()
+            .alias("times_last_pick"),
+        )
+        .sort("avg_draft_position")
+    )
