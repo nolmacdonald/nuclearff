@@ -1329,3 +1329,82 @@ def test_report_user_leagues_reports_no_leagues_found(tmp_path, capsys):
 
     assert exit_code == EXIT_ERROR
     assert "No leagues found" in capsys.readouterr().out
+
+
+# --- report wins (GitHub Issue 79) ------------------------------------------
+
+
+@responses.activate
+def test_report_wins_renders_a_png(tmp_path, capsys):
+    """Two managers, one win each, across a single season."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    league_id = "1240509989819273216"
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{league_id}/rosters",
+        json=[
+            {"roster_id": 1, "owner_id": "u1"},
+            {"roster_id": 2, "owner_id": "u2"},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{league_id}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u2", "display_name": "hyoga10"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{league_id}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{league_id}/matchups/1",
+        json=[
+            {"roster_id": 1, "matchup_id": 1, "points": 120.0},
+            {"roster_id": 2, "matchup_id": 1, "points": 100.0},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/u1",
+        json={"user_id": "u1", "display_name": "nolmacdonald", "avatar": None},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/u2",
+        json={"user_id": "u2", "display_name": "hyoga10", "avatar": None},
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [{"league_id": league_id, "season": 2025}]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+
+    out_path = tmp_path / "wins.png"
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "wins",
+            league_id,
+            "--out",
+            str(out_path),
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Managers: 2" in capsys.readouterr().out
+    assert out_path.is_file()
+
+
+def test_report_wins_reports_no_matchups_table(tmp_path, capsys):
+    exit_code = main(["--root", str(tmp_path), "report", "wins", "1"])
+
+    assert exit_code == EXIT_ERROR
+    assert "No sleeper_matchups table found" in capsys.readouterr().out

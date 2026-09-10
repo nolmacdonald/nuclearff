@@ -20,11 +20,13 @@ from nuclearff.report.user_leagues import (
     render_user_leagues_table,
     summarize_league_types,
 )
+from nuclearff.report.wins import render_cumulative_wins
 
 __all__ = [
     "render_bracket_tree",
     "render_chord_diagram",
     "render_cumulative_trades",
+    "render_cumulative_wins",
     "render_draft_board",
     "render_manager_pair_leaderboard",
     "render_manager_season_heatmap",

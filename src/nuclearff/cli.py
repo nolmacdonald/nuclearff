@@ -958,6 +958,87 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_wins(args: argparse.Namespace) -> int:
+    """Render cumulative wins over time from stored matchup/standings history.
+
+    Reads ``sleeper_matchups`` (``sleeper fetch-league --matchups``) and
+    ``sleeper_standings`` (``--standings``) -- both required, unlike
+    ``report trades``'s optional standings fallback, since a manager's
+    display name and a per-week result both come from these two tables.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``out``.
+
+    Returns:
+        An exit code.
+    """
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_cumulative_wins
+    from nuclearff.sleeper.wins import cumulative_wins, weekly_results
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    try:
+        matchups = read_table(db_path, "sleeper_matchups")
+    except StorageError:
+        print(
+            "No sleeper_matchups table found. Run "
+            "`nuclearff sleeper fetch-league --matchups` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        standings = read_table(db_path, "sleeper_standings")
+    except StorageError:
+        print(
+            "No sleeper_standings table found. Run "
+            "`nuclearff sleeper fetch-league --standings` first."
+        )
+        return EXIT_ERROR
+
+    cumulative = cumulative_wins(weekly_results(matchups), standings)
+    if cumulative.height == 0:
+        print("No completed matchups found for any manager.")
+        return EXIT_ERROR
+
+    # One owner_id per manager -- their most recent season's -- for a
+    # single live avatar lookup per manager rather than per season.
+    owner_ids = (
+        standings.filter(pl.col("display_name").is_not_null())
+        .sort("season", descending=True)
+        .group_by("display_name", maintain_order=True)
+        .agg(pl.col("owner_id").first())
+    )
+    avatar_ids: dict[str, str | None] = {}
+    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
+        for row in owner_ids.iter_rows(named=True):
+            try:
+                user = client.get_user(row["owner_id"])
+                avatar_ids[row["display_name"]] = user.get("avatar")
+            except NuclearffError as exc:
+                logger.warning(
+                    "Could not resolve avatar for %s: %s", row["display_name"], exc
+                )
+                avatar_ids[row["display_name"]] = None
+
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir / f"{args.league_id}-wins.png"
+    )
+    written = render_cumulative_wins(
+        cumulative,
+        avatar_ids,
+        out_path,
+        cache_dir=config.paths.cache_dir / "avatars",
+    )
+
+    print(f"Managers: {cumulative['manager'].n_unique()}")
+    print(f"Wins:     {written}")
+    return EXIT_OK
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Construct the argument parser for every command group.
 
@@ -1232,6 +1313,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output directory (default: <artifacts>/<league_id>-trades)",
     )
     trades.set_defaults(func=_cmd_report_trades)
+
+    wins = report_commands.add_parser(
+        "wins",
+        help="Render cumulative wins over time from stored matchup history",
+    )
+    wins.add_argument("league_id", help="Sleeper league identifier")
+    wins.add_argument(
+        "--out",
+        default=None,
+        help="Output PNG path (default: <artifacts>/<league_id>-wins.png)",
+    )
+    wins.set_defaults(func=_cmd_report_wins)
 
     user_leagues_report = report_commands.add_parser(
         "user-leagues",
