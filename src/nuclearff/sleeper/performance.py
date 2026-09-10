@@ -181,9 +181,11 @@ def weekly_performance(
         actuals: Output of :func:`weekly_actuals` or :func:`season_actuals`.
         projections: ``sleeper_projections`` rows covering every
             ``(season, week)`` present in ``actuals`` — needs ``season``,
-            ``week``, ``player_id``, ``stats``.
+            ``week``, ``player_id``, ``stats``, ``team``. ``team`` is the
+            source of the output's own ``team`` column, deliberately not
+            ``players`` — see the inline comment above where it's joined.
         players: ``sleeper_players`` rows — needs ``player_id`` and,
-            ideally, ``full_name``/``last_name``/``position``/``team``.
+            ideally, ``full_name``/``last_name``/``position``.
         scoring: The league's scoring rules, used to rescore each
             projection (see the module docstring for why).
         starters_only: When ``True`` (default), only a roster's actual
@@ -211,22 +213,24 @@ def weekly_performance(
             lambda raw: score_projection(json.loads(raw or "{}"), scoring),
             return_dtype=pl.Float64,
         )
-        .alias("projected_points")
-    ).select("season", "week", "player_id", "projected_points")
+        .alias("projected_points"),
+        # `sleeper_projections.team` is the real team Sleeper had on file
+        # for this exact (season, week) -- not `sleeper_players.team`,
+        # which is a single, current snapshot (today's roster). A player
+        # traded mid-season, or since departed the league entirely as a
+        # free agent, needs their *that-week* team here, not their team as
+        # of whenever this table happened to be fetched. Real bug this
+        # fixed: the season report rendering "FA" for Nick Chubb and Zach
+        # Ertz for every 2025 week, including ones where they had a real
+        # NFL team, because it was joining `sleeper_players`' current
+        # (post-2025) snapshot instead of that week's own projection.
+        pl.col("team").fill_null("FA").alias("team"),
+    ).select("season", "week", "player_id", "projected_points", "team")
 
     names = players.select(
         "player_id",
         pl.coalesce(pl.col("full_name"), pl.col("last_name")).alias("player_name"),
         pl.col("position").fill_null("--"),
-        # A real, legitimate null for a current free agent (Sleeper's player
-        # map reflects *today's* roster, not the season being reported on --
-        # a player can leave the league entirely between then and now).
-        # Left as a bare null, this renders as the literal string "nan" once
-        # it crosses the pandas/plottable boundary -- a real bug caught
-        # rendering the season report against this league's real 2025 data
-        # (Nick Chubb, Zach Ertz both real 2025 starters, both real free
-        # agents as of this fetch).
-        pl.col("team").fill_null("FA"),
     )
 
     merged = (

@@ -41,7 +41,6 @@ def _players(rows: list[dict]) -> pl.DataFrame:
         "full_name": pl.String,
         "last_name": pl.String,
         "position": pl.String,
-        "team": pl.String,
     }
     return pl.DataFrame(rows, schema=schema)
 
@@ -52,6 +51,7 @@ def _projections(rows: list[dict]) -> pl.DataFrame:
         "week": pl.Int64,
         "player_id": pl.String,
         "stats": pl.String,
+        "team": pl.String,
     }
     return pl.DataFrame(rows, schema=schema)
 
@@ -183,6 +183,7 @@ def test_weekly_performance_computes_delta_under_league_scoring():
                 "week": 1,
                 "player_id": "100",
                 "stats": json.dumps({"rec_yd": 100.0}),
+                "team": "NE",
             }
         ]
     )
@@ -193,7 +194,6 @@ def test_weekly_performance_computes_delta_under_league_scoring():
                 "full_name": "Drake Maye",
                 "last_name": "Maye",
                 "position": "QB",
-                "team": "NE",
             }
         ]
     )
@@ -206,6 +206,7 @@ def test_weekly_performance_computes_delta_under_league_scoring():
     assert row["actual_points"] == 5.0
     assert row["delta"] == pytest.approx(-5.0)
     assert row["player_name"] == "Drake Maye"
+    assert row["team"] == "NE"
 
 
 def test_weekly_performance_excludes_a_player_with_no_projection():
@@ -254,6 +255,7 @@ def test_weekly_performance_starters_only_filters_bench_players():
                 "week": 1,
                 "player_id": "100",
                 "stats": json.dumps({"rec_yd": 100.0}),
+                "team": "NE",
             }
         ]
     )
@@ -285,7 +287,15 @@ def test_weekly_performance_falls_back_to_player_id_with_no_name():
         ]
     )
     projections = _projections(
-        [{"season": 2025, "week": 1, "player_id": "100", "stats": json.dumps({})}]
+        [
+            {
+                "season": 2025,
+                "week": 1,
+                "player_id": "100",
+                "stats": json.dumps({}),
+                "team": "NE",
+            }
+        ]
     )
     players = _players([])
     scoring = ScoringSettings(values={})
@@ -295,12 +305,10 @@ def test_weekly_performance_falls_back_to_player_id_with_no_name():
     assert performance.row(0, named=True)["player_name"] == "100"
 
 
-def test_weekly_performance_fills_a_null_team_rather_than_rendering_nan():
-    """Real bug caught rendering the season report against this league's
-    real 2025 data: a real, legitimate null team (a current free agent, per
-    Sleeper's player map, which reflects today's rosters not the reported
-    season's) crossed the pandas/plottable boundary as the literal string
-    "nan" instead of a blank or placeholder."""
+def test_weekly_performance_fills_a_null_projection_team_rather_than_rendering_nan():
+    """A real, legitimate null team on that week's own projection (Sleeper
+    genuinely didn't have one on file) must not render as the literal
+    string "nan" once it crosses the pandas/plottable boundary."""
     actuals = _actuals(
         [
             {
@@ -316,7 +324,15 @@ def test_weekly_performance_fills_a_null_team_rather_than_rendering_nan():
         ]
     )
     projections = _projections(
-        [{"season": 2025, "week": 1, "player_id": "100", "stats": json.dumps({})}]
+        [
+            {
+                "season": 2025,
+                "week": 1,
+                "player_id": "100",
+                "stats": json.dumps({}),
+                "team": None,
+            }
+        ]
     )
     players = _players(
         [
@@ -325,7 +341,6 @@ def test_weekly_performance_fills_a_null_team_rather_than_rendering_nan():
                 "full_name": "Nick Chubb",
                 "last_name": "Chubb",
                 "position": "RB",
-                "team": None,
             }
         ]
     )
@@ -334,6 +349,77 @@ def test_weekly_performance_fills_a_null_team_rather_than_rendering_nan():
     performance = weekly_performance(actuals, projections, players, scoring)
 
     assert performance.row(0, named=True)["team"] == "FA"
+
+
+def test_weekly_performance_sources_team_from_that_weeks_projection_not_players():
+    """Real bug caught rendering the season report against this league's
+    real 2025 data: `sleeper_players.team` is a single, current snapshot
+    (today's roster) -- for a player traded mid-season, or since departed
+    as a free agent, joining that instead of the specific week's own
+    projection showed the *current* team (or "FA") for every historical
+    week, not the real team that player actually had that week."""
+    actuals = _actuals(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "manager": "nolmacdonald",
+                "player_id": "100",
+                "is_starter": True,
+                "actual_points": 5.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 2,
+                "roster_id": 1,
+                "manager": "nolmacdonald",
+                "player_id": "100",
+                "is_starter": True,
+                "actual_points": 8.0,
+            },
+        ]
+    )
+    projections = _projections(
+        [
+            {
+                "season": 2025,
+                "week": 1,
+                "player_id": "100",
+                "stats": json.dumps({}),
+                "team": "CLE",
+            },
+            {
+                "season": 2025,
+                "week": 2,
+                "player_id": "100",
+                "stats": json.dumps({}),
+                "team": "HOU",
+            },
+        ]
+    )
+    # Today's (current) team is neither -- simulates a player who has since
+    # left the league entirely as a free agent, the real Nick Chubb/Zach
+    # Ertz case found live.
+    players = _players(
+        [
+            {
+                "player_id": "100",
+                "full_name": "Nick Chubb",
+                "last_name": "Chubb",
+                "position": "RB",
+            }
+        ]
+    )
+    scoring = ScoringSettings(values={})
+
+    performance = weekly_performance(actuals, projections, players, scoring).sort(
+        "week"
+    )
+
+    assert performance["team"].to_list() == ["CLE", "HOU"]
 
 
 # --- season_actuals -------------------------------------------------------
