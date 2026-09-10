@@ -174,6 +174,18 @@ for that league and season first if this comes back with no matches).
 ``--out-dir`` overrides the default output location,
 ``<artifacts>/<league_id>-<season>/brackets/``.
 
+.. figure:: _static/screenshots/playoff_bracket_winners.png
+   :width: 700
+   :alt: Winners playoff bracket tree
+
+   Real winners bracket for this league's completed 2025 season.
+
+.. figure:: _static/screenshots/playoff_bracket_losers.png
+   :width: 700
+   :alt: Losers playoff bracket tree
+
+   Real losers bracket for the same season.
+
 Weekly matchups
 ------------------
 
@@ -377,7 +389,13 @@ turns realized fantasy points into a priced draft board:
 
 .. code-block:: text
 
-   $ nuclearff report auction-board <league_id> --seasons 2023 2024 2025 --as-of-season 2026
+   $ nuclearff --root ./demo report auction-board 1387966835797798912 \
+       --seasons 2024 2025 --as-of-season 2026
+   League:          Freeman Forever League (2026)
+   Budget:          $200/team x 10 teams
+   Players valued:  746
+   In draft pool:   140
+   Report:          ./demo/data/artifacts/1387966835797798912-2026/report.md
 
 Its options, from ``--help``:
 
@@ -400,11 +418,19 @@ Its options, from ``--help``:
 This pipeline — recency-weighted realized points, per-position replacement
 level and VORP, FantasyPros consensus join, dollars that sum to exactly the
 league's real budget — was verified end-to-end against a real auction
-league. ``NUCLEARFF REDRAFT``, this page's running example, runs a snake
-draft, so it isn't a usable demo league for this particular command; point
-it at a league whose ``draft.type`` is ``"auction"`` instead. Output is a
-CSV, a markdown report with methodology notes, and (unless ``--no-tables``)
-a styled PNG table per position.
+league. ``NUCLEARFF REDRAFT``, this page's running example everywhere else,
+runs a snake draft, so it isn't usable for this particular command;
+``Freeman Forever League`` above is a different real league on the same
+account whose ``draft.type`` is ``"auction"``. Output is a CSV, a markdown
+report with methodology notes, and (unless ``--no-tables``) a styled PNG
+table per position:
+
+.. figure:: _static/screenshots/auction_board_wr.png
+   :width: 700
+   :alt: Styled auction-board table for the top 12 WRs
+
+   Real WR table for ``Freeman Forever League`` — one of four position
+   tables this command renders (QB, RB, WR, TE).
 
 Keeper cost adjustment (``keeper_inflation_multiplier``,
 ``keeper_adjusted_values``) is implemented but not yet wired into this
@@ -424,8 +450,8 @@ column per draft slot (team), one row per round.
    Picks:       150
    Draft board: ./demo/data/artifacts/1367225133634191360-draft-board/1367225133646778368.png
 
-That's this league's real, currently in-progress 2026 draft: 150 real picks
-rendered so far, across 10 columns and 15 rounds. Each cell shows the pick's
+That's this league's real, now-complete 2026 draft: all 150 real picks
+(10 columns, 15 rounds). Each cell shows the pick's
 position and NFL team, the pick number (e.g. ``3.10`` — round 3, draft slot
 10), and the player's name on two lines (first name, then bold last name).
 Cell color follows position: green for RB, blue for WR, pink for QB, orange
@@ -438,6 +464,12 @@ own draft has ``settings.reversal_round: 3`` — round 3 continues round 2's
 column direction instead of reversing back to round 1's. The grid doesn't
 compute pick order itself: each pick's column is its own real ``draft_slot``,
 which Sleeper has already resolved correctly, reversal round included.
+
+.. figure:: _static/screenshots/draft_board.png
+   :width: 700
+   :alt: Snake-order draft board grid of position-colored pick cards
+
+   This league's real, now-complete 2026 draft (150 picks).
 
 ``--draft-id`` selects which draft to render; omit it and the league's most
 recent draft is used automatically (via ``sleeper user-drafts``' same
@@ -456,6 +488,67 @@ Trade network analysis
 ``report trades`` turns a league's stored trade history into ten PNGs —
 who trades, who trades with whom, and how that's changed over time. It's
 its own page: :doc:`league_trade_history`.
+
+League avatar table
+------------------------
+
+``report user-leagues`` resolves a username (or user id) to every league
+they're in for a season and renders it as a PNG table — avatar, name,
+league id, type, team count, status — with a per-type count summary at the
+bottom:
+
+.. code-block:: text
+
+   $ nuclearff --root ./demo report user-leagues nolmacdonald --season 2026
+   User:    nolmacdonald (332632476830679040)
+   Leagues: ./demo/data/artifacts/332632476830679040-leagues/2026.png
+
+.. figure:: _static/screenshots/user_leagues.png
+   :width: 700
+   :alt: PNG table of a user's leagues with avatars and a per-type summary
+
+   Real output for ``nolmacdonald``'s real 18 leagues for the 2026 season:
+   4 redraft, 4 Chopped, 9 dynasty, 1 keeper.
+
+``Type`` resolves Sleeper's numeric ``settings.type`` (0/1/2/3) to a
+readable label, not a name-substring match — a league can be genuinely
+Chopped-type without yet having the ``last_chopped_leg`` setting a stricter
+check would also require, simply because it hasn't eliminated anyone yet
+this season. A league with no avatar set (real for several of this
+account's real leagues) gets a neutral placeholder image, not a broken
+cell.
+
+Cumulative wins
+-------------------
+
+``report wins`` derives a per-week win/loss/tie from stored matchup
+history (nothing stores this directly — it's computed by comparing the two
+rosters sharing a matchup) and renders each manager's running win total
+over the league's full history as a step chart, one line per manager,
+ending in that manager's real Sleeper headshot instead of a text label:
+
+.. code-block:: text
+
+   $ nuclearff --root ./demo report wins 1367225133634191360
+   Managers: 15
+   Wins:     ./demo/data/artifacts/1367225133634191360-wins.png
+
+.. figure:: _static/screenshots/cumulative_wins.png
+   :width: 700
+   :alt: Step chart of cumulative wins per manager, each line ending in a headshot
+
+   Real output for this league's real 15 managers across its full
+   6-season history.
+
+A manager's line starts at game 1 of *their own* real history, not the
+league's — a manager who joined partway through doesn't get their earlier
+seasons backfilled. Cumulative wins is raw chronological win count, not
+adjusted for strength of schedule or playoff seeding — this league's own
+real history shows why that distinction matters: a 2025 regular-season
+leader went 20-8 but finished 4th place, while the eventual champion was
+16-12. Requires both ``--matchups`` and ``--standings`` to have been run
+first (matchups for the per-week result, standings for each roster's
+manager name).
 
 Querying what you've built
 -------------------------------

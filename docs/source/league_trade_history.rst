@@ -58,6 +58,12 @@ instead of being silently missing. Skip ``--standings`` and the chart still
 renders — it just can't include a manager who never traded, since trade
 data alone gives no way to know they exist.
 
+.. figure:: _static/screenshots/trades_by_manager.png
+   :width: 700
+   :alt: Horizontal bar chart of total trades per manager
+
+   Real output for ``nolmacdonald``'s league (``1367225133634191360``).
+
 Trades between managers
 ---------------------------
 
@@ -71,6 +77,12 @@ counted twice for any single pair. Same full-roster densification as the
 bar chart: a manager with zero trades still gets a dense, all-zero row and
 column rather than being omitted from the grid.
 
+.. figure:: _static/screenshots/trades_heatmap.png
+   :width: 700
+   :alt: Manager x manager heatmap of trade counts
+
+   Real output for ``nolmacdonald``'s league.
+
 Manager trade network
 -------------------------
 
@@ -83,6 +95,12 @@ the graph is genuinely sparse — this league's real graph has 13 edges
 across 15 nodes, and several managers never connect to the rest of the
 league at all. That's this league's real trading activity, not a rendering
 bug, and the chart says so directly.
+
+.. figure:: _static/screenshots/trade_network.png
+   :width: 700
+   :alt: Node-link graph of the manager trade network
+
+   Real output for ``nolmacdonald``'s league.
 
 Chord diagram
 -----------------
@@ -100,16 +118,29 @@ for a single chart. With a small trade sample like this league's real 22,
 expect a visibly sparse diagram; that's a real result about this league,
 not a bug.
 
+.. figure:: _static/screenshots/chord_diagram.png
+   :width: 700
+   :alt: Circular chord diagram of manager trade relationships
+
+   Real output for ``nolmacdonald``'s league.
+
 Trade leaderboard table
 ---------------------------
 
 One reference row per manager — Trades, Unique Partners, Most Frequent
 Partner, Trades With Partner — sorted by trade count, most active first. It
-has no circle-cropped headshots unlike ``nuclearff``'s player tables: a
-Sleeper manager has no headshot URL anywhere in this project's data model,
-only an avatar id nothing currently resolves. A zero-trade manager still
-gets a full row rather than being omitted, with ``—`` in place of a partner
-that doesn't exist.
+has no circle-cropped headshots unlike ``nuclearff``'s player tables — a
+manager avatar is resolvable (see :doc:`user_guide`'s "League avatar
+table" and "Cumulative wins" sections), this table specifically just
+stays a plain reference table instead. A zero-trade manager still gets a
+full row rather than being omitted, with ``—`` in place of a partner that
+doesn't exist.
+
+.. figure:: _static/screenshots/trade_leaderboard.png
+   :width: 700
+   :alt: Trade leaderboard reference table
+
+   Real output for ``nolmacdonald``'s league.
 
 Manager-pair leaderboard
 ----------------------------
@@ -122,6 +153,12 @@ single trade. Each pair appears once: Sleeper trade rows are exploded into
 manager-pair edges with the two names already sorted alphabetically, so
 grouping directly on them can never produce both an A↔B and a B↔A row for
 the same pair.
+
+.. figure:: _static/screenshots/manager_pair_leaderboard.png
+   :width: 700
+   :alt: Horizontal bar chart of the top manager pairs by trade count
+
+   Real output for ``nolmacdonald``'s league.
 
 Trades over time
 --------------------
@@ -137,6 +174,12 @@ trade-count aggregate on this page uses — summing every manager's own line
 instead would roughly double-count a season's real trade volume, since most
 trades involve two managers.
 
+.. figure:: _static/screenshots/trades_over_time.png
+   :width: 700
+   :alt: Line chart of trades by season, one line per manager plus a league total
+
+   Real output for ``nolmacdonald``'s league.
+
 Manager x season heatmap
 ----------------------------
 
@@ -150,6 +193,12 @@ that a gap would otherwise avoid. This league's real 2022 peak —
 ``nolmacdonald``'s 6 trades in a single season — renders as the single
 darkest cell on the grid.
 
+.. figure:: _static/screenshots/manager_season_heatmap.png
+   :width: 700
+   :alt: Manager x season heatmap of trade counts
+
+   Real output for ``nolmacdonald``'s league.
+
 Cumulative trade history
 ----------------------------
 
@@ -161,6 +210,12 @@ their end rather than in a legend, since a legend for 15 real managers
 would either overflow the figure or need its own overlap fix. This league's
 real history: ``nolmacdonald`` is the all-time leader with 14 of the
 league's 22 trades, visibly taking the lead in late 2023.
+
+.. figure:: _static/screenshots/cumulative_trades.png
+   :width: 700
+   :alt: Step chart of cumulative trades per manager over time
+
+   Real output for ``nolmacdonald``'s league.
 
 Trade partner diversity
 ----------------------------
@@ -177,6 +232,12 @@ fully-overlapping ones. ``nolmacdonald`` (14 trades, 7 partners) and
 ``ksavabi``, ``macbuffet66``, and ``nawfeastdallas`` (1 trade, 1 partner
 each) visibly contrast with ``hyoga10`` (3 trades, 3 partners) — the same
 raw trade count band, opposite diversity.
+
+.. figure:: _static/screenshots/trade_partner_diversity.png
+   :width: 550
+   :alt: Scatter plot of total trades vs. unique trade partners
+
+   Real output for ``nolmacdonald``'s league.
 
 Reading these charts correctly
 -----------------------------------
