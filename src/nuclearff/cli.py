@@ -706,6 +706,39 @@ def _cmd_report_user_leagues(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _current_league_managers(standings: pl.DataFrame, league_id: str) -> set[str]:
+    """The real manager display names rostered in one specific season.
+
+    ``sleeper_standings`` has one row per ``(league_id, roster_id)``, and
+    each season has its own distinct ``league_id`` (every multi-season
+    fetch in this project already keys off that) -- so filtering to a
+    single ``league_id`` already gives exactly that season's real roster,
+    with no new Sleeper fetching. Backs the ``all_users=False`` default
+    (GitHub Issue 87): every multi-manager report defaulted to *every*
+    manager who has ever appeared in the league's history, an accident of
+    "don't filter" rather than a deliberate choice, since a manager's
+    display name was pulled from the full multi-season ``sleeper_standings``
+    table with no ``league_id`` filter at all.
+
+    Args:
+        standings: ``sleeper_standings`` rows, e.g.
+            :func:`nuclearff.duckdb_io.read_table`'s output for that table.
+        league_id: The specific season's league id to restrict to.
+
+    Returns:
+        Real display names for that season. A roster with no resolvable
+        display name is excluded, matching every other manager-identity
+        lookup in this project.
+    """
+    return {
+        name
+        for name in standings.filter(pl.col("league_id") == league_id)[
+            "display_name"
+        ].to_list()
+        if name
+    }
+
+
 def _densify_trade_matrix(
     matrix: pl.DataFrame, all_managers: list[str]
 ) -> pl.DataFrame:
@@ -819,13 +852,17 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
 
     Reads ``sleeper_transactions`` (written by ``sleeper fetch-league
     --transactions``) for trade data. Also reads ``sleeper_standings``
-    (written by ``--standings``) for the full manager roster, so a manager
-    with zero trades still appears rather than being silently absent — if
-    that table doesn't exist yet, falls back to only the managers who
-    appear in trade data, with a warning.
+    (written by ``--standings``) for the manager roster, so a manager with
+    zero trades still appears rather than being silently absent — if that
+    table doesn't exist yet, falls back to only the managers who appear in
+    trade data, with a warning.
 
     Args:
-        args: Parsed arguments carrying ``league_id``, ``out_dir``.
+        args: Parsed arguments carrying ``league_id``, ``out_dir``, and
+            ``all_users`` (default ``False``: only managers rostered in
+            ``league_id``'s own season; ``True``: every manager across the
+            league's full history, this command's behavior before issue
+            #87).
 
     Returns:
         An exit code.
@@ -865,20 +902,41 @@ def _cmd_report_trades(args: argparse.Namespace) -> int:
         )
         return EXIT_ERROR
 
-    counts = manager_trade_counts(edges)
-
     try:
         standings = read_table(db_path, "sleeper_standings")
-        all_managers = sorted(
-            {name for name in standings["display_name"].to_list() if name}
-        )
+        if args.all_users:
+            all_managers = sorted(
+                {name for name in standings["display_name"].to_list() if name}
+            )
+        else:
+            all_managers = sorted(_current_league_managers(standings, args.league_id))
+            # Every visualization on this page is either a per-manager
+            # aggregate or a pairwise structure (heatmap/network/chord/pair
+            # leaderboard) with no way to render an edge to a manager who
+            # isn't a modeled node -- filtering `edges` once, up front,
+            # keeps every downstream computation consistent with a single
+            # rule ("a trade counts when `all_users=False` only if both
+            # sides are current") rather than patching each visualization's
+            # output separately. Real trade-off, stated directly rather
+            # than silently: a current manager's own total can be smaller
+            # than their real all-time count if some of their trades were
+            # with a manager who has since left the league.
+            edges = edges.filter(
+                pl.col("manager_a").is_in(all_managers)
+                & pl.col("manager_b").is_in(all_managers)
+            )
     except StorageError:
         logger.warning(
             "sleeper_standings not found — a manager with zero trades won't "
-            "appear. Run `sleeper fetch-league --standings` for the full roster."
+            "appear, and --all-users has no effect. Run `sleeper fetch-league "
+            "--standings` for the full roster."
         )
-        all_managers = counts["manager"].to_list()
+        all_managers = None
         standings = None
+
+    counts = manager_trade_counts(edges)
+    if all_managers is None:
+        all_managers = counts["manager"].to_list()
 
     # Densified over every column manager_trade_counts produces, not just
     # `trades` -- the leaderboard table needs unique_partners/
@@ -983,7 +1041,11 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
     display name and a per-week result both come from these two tables.
 
     Args:
-        args: Parsed arguments carrying ``league_id``, ``out``.
+        args: Parsed arguments carrying ``league_id``, ``out``, and
+            ``all_users`` (default ``False``: only managers rostered in
+            ``league_id``'s own season; ``True``: every manager across the
+            league's full history, this command's behavior before issue
+            #87).
 
     Returns:
         An exit code.
@@ -1014,14 +1076,27 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     cumulative = cumulative_wins(weekly_results(matchups), standings)
+    if not args.all_users:
+        # A win/loss is a personal fact about the manager who earned it, not
+        # a pairwise structure the way a trade is -- their full historical
+        # count (including games against a since-departed opponent) stays
+        # intact, only which *managers* get a line changes.
+        current = _current_league_managers(standings, args.league_id)
+        cumulative = cumulative.filter(pl.col("manager").is_in(current))
     if cumulative.height == 0:
         print("No completed matchups found for any manager.")
         return EXIT_ERROR
 
     # One owner_id per manager -- their most recent season's -- for a
-    # single live avatar lookup per manager rather than per season.
+    # single live avatar lookup per manager rather than per season. Only
+    # for managers actually being rendered: with `all_users=False`, this
+    # also avoids a wasted live API call per excluded manager.
+    rendered_managers = cumulative["manager"].unique().to_list()
     owner_ids = (
-        standings.filter(pl.col("display_name").is_not_null())
+        standings.filter(
+            pl.col("display_name").is_not_null()
+            & pl.col("display_name").is_in(rendered_managers)
+        )
         .sort("season", descending=True)
         .group_by("display_name", maintain_order=True)
         .agg(pl.col("owner_id").first())
@@ -1063,7 +1138,11 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     as ``report wins``.
 
     Args:
-        args: Parsed arguments carrying ``league_id``, ``out``.
+        args: Parsed arguments carrying ``league_id``, ``out``, and
+            ``all_users`` (default ``False``: only managers rostered in
+            ``league_id``'s own season; ``True``: every manager across the
+            league's full history, this command's behavior before issue
+            #87).
 
     Returns:
         An exit code.
@@ -1094,6 +1173,12 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     stats = draft_order_stats(picks, standings)
+    if not args.all_users:
+        # A draft position is a personal fact about the manager who held
+        # it, not a pairwise structure -- their full historical average
+        # stays intact, only which managers get a row changes.
+        current = _current_league_managers(standings, args.league_id)
+        stats = stats.filter(pl.col("manager").is_in(current))
     if stats.height == 0:
         print("No resolvable round-1 draft picks found for any manager.")
         return EXIT_ERROR
@@ -1381,6 +1466,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     draft_board.set_defaults(func=_cmd_report_draft_board)
 
+    all_users_help = (
+        "Include every manager across the league's full history, not just "
+        "those rostered in league_id's own season (default: current "
+        "members only)"
+    )
+
     trades = report_commands.add_parser(
         "trades",
         help="Render the manager trade network from stored trade history",
@@ -1391,6 +1482,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output directory (default: <artifacts>/<league_id>-trades)",
     )
+    trades.add_argument("--all-users", action="store_true", help=all_users_help)
     trades.set_defaults(func=_cmd_report_trades)
 
     wins = report_commands.add_parser(
@@ -1403,6 +1495,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output PNG path (default: <artifacts>/<league_id>-wins.png)",
     )
+    wins.add_argument("--all-users", action="store_true", help=all_users_help)
     wins.set_defaults(func=_cmd_report_wins)
 
     draft_order = report_commands.add_parser(
@@ -1415,6 +1508,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Output PNG path (default: <artifacts>/<league_id>-draft-order.png)",
     )
+    draft_order.add_argument("--all-users", action="store_true", help=all_users_help)
     draft_order.set_defaults(func=_cmd_report_draft_order)
 
     user_leagues_report = report_commands.add_parser(

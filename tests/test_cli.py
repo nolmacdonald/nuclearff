@@ -1250,6 +1250,113 @@ def test_report_trades_reports_a_missing_transactions_table(tmp_path, capsys):
     assert "No sleeper_transactions table found" in capsys.readouterr().out
 
 
+# --- all_users default (GitHub Issue 87) ------------------------------------
+
+_OLD_TRADES_LEAGUE_ID = "1111111111"
+_OLD_TRADES_ROSTERS = [
+    {"roster_id": 1, "owner_id": "u3"},
+    {"roster_id": 2, "owner_id": "u_departed"},
+]
+_OLD_TRADES_USERS = [
+    {"user_id": "u3", "display_name": "nolmacdonald"},
+    {"user_id": "u_departed", "display_name": "departed_mgr"},
+]
+_OLD_TRADE = {
+    "status": "complete",
+    "type": "trade",
+    "metadata": None,
+    "created": 1700000000000,
+    "settings": {},
+    "leg": 1,
+    "draft_picks": [],
+    "creator": "u3",
+    "transaction_id": "999",
+    "adds": {},
+    "consenter_ids": [1, 2],
+    "drops": {},
+    "roster_ids": [1, 2],
+    "status_updated": 1700000000000,
+    "waiver_budget": [],
+}
+
+
+def _mock_two_season_trades_endpoints():
+    _mock_trades_endpoints()
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OLD_TRADES_LEAGUE_ID}/rosters",
+        json=_OLD_TRADES_ROSTERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OLD_TRADES_LEAGUE_ID}/users",
+        json=_OLD_TRADES_USERS,
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OLD_TRADES_LEAGUE_ID}/winners_bracket", json=[]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OLD_TRADES_LEAGUE_ID}/losers_bracket", json=[]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OLD_TRADES_LEAGUE_ID}/transactions/1",
+        json=[_OLD_TRADE],
+    )
+
+
+def _seed_two_season_trades(tmp_path):
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+    from nuclearff.sleeper.transactions import fetch_and_write_transactions
+
+    _mock_two_season_trades_endpoints()
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [
+        {"league_id": _TRADES_LEAGUE_ID, "season": 2025},
+        {"league_id": _OLD_TRADES_LEAGUE_ID, "season": 2024},
+    ]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_transactions(client, leagues, db_path, max_week=1)
+    return db_path
+
+
+@responses.activate
+def test_report_trades_default_excludes_a_manager_no_longer_in_the_league(
+    tmp_path, capsys
+):
+    """departed_mgr traded in 2024 but isn't rostered in the 2025 league_id
+    passed -- all_users=False (the new default) must exclude them."""
+    _seed_two_season_trades(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "report", "trades", _TRADES_LEAGUE_ID])
+
+    assert exit_code == EXIT_OK
+    assert "Managers:                 3" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_trades_all_users_includes_a_departed_manager(tmp_path, capsys):
+    _seed_two_season_trades(tmp_path)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "trades",
+            _TRADES_LEAGUE_ID,
+            "--all-users",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Managers:                 4" in capsys.readouterr().out
+
+
 # --- report user-leagues (GitHub Issue 77) ---------------------------------
 
 
@@ -1410,6 +1517,106 @@ def test_report_wins_reports_no_matchups_table(tmp_path, capsys):
     assert "No sleeper_matchups table found" in capsys.readouterr().out
 
 
+def _seed_two_season_wins(tmp_path):
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    current_id = "2222222222"
+    old_id = "3333333333"
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}, {"roster_id": 2, "owner_id": "u2"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u2", "display_name": "hyoga10"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{current_id}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{current_id}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/matchups/1",
+        json=[
+            {"roster_id": 1, "matchup_id": 1, "points": 120.0},
+            {"roster_id": 2, "matchup_id": 1, "points": 100.0},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}, {"roster_id": 2, "owner_id": "u3"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u3", "display_name": "departed_mgr"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{old_id}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{old_id}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/matchups/1",
+        json=[
+            {"roster_id": 1, "matchup_id": 1, "points": 90.0},
+            {"roster_id": 2, "matchup_id": 1, "points": 110.0},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/u1",
+        json={"user_id": "u1", "display_name": "nolmacdonald", "avatar": None},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/u2",
+        json={"user_id": "u2", "display_name": "hyoga10", "avatar": None},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/user/u3",
+        json={"user_id": "u3", "display_name": "departed_mgr", "avatar": None},
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [
+        {"league_id": current_id, "season": 2025},
+        {"league_id": old_id, "season": 2024},
+    ]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+    return current_id
+
+
+@responses.activate
+def test_report_wins_default_excludes_a_manager_no_longer_in_the_league(
+    tmp_path, capsys
+):
+    current_id = _seed_two_season_wins(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "report", "wins", current_id])
+
+    assert exit_code == EXIT_OK
+    assert "Managers: 2" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_wins_all_users_includes_a_departed_manager(tmp_path, capsys):
+    current_id = _seed_two_season_wins(tmp_path)
+
+    exit_code = main(
+        ["--root", str(tmp_path), "report", "wins", current_id, "--all-users"]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Managers: 3" in capsys.readouterr().out
+
+
 # --- report draft-order (GitHub Issue 85) -----------------------------------
 
 
@@ -1492,6 +1699,115 @@ def test_report_draft_order_renders_a_png(tmp_path, capsys):
     assert exit_code == EXIT_OK
     assert "Managers:    2" in capsys.readouterr().out
     assert out_path.is_file()
+
+
+def _seed_two_season_draft_order(tmp_path):
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.draft import fetch_and_write_all_drafts
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    current_id = "4444444444"
+    old_id = "5555555555"
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}, {"roster_id": 2, "owner_id": "u2"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u2", "display_name": "hyoga10"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{current_id}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{current_id}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{current_id}/drafts", json=[{"draft_id": "d1"}]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/d1",
+        json={"draft_id": "d1", "league_id": current_id, "season": "2025"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/d1/picks",
+        json=[
+            {"pick_no": 1, "round": 1, "draft_slot": 1, "roster_id": 1, "metadata": {}},
+            {"pick_no": 2, "round": 1, "draft_slot": 2, "roster_id": 2, "metadata": {}},
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}, {"roster_id": 2, "owner_id": "u3"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/users",
+        json=[
+            {"user_id": "u1", "display_name": "nolmacdonald"},
+            {"user_id": "u3", "display_name": "departed_mgr"},
+        ],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{old_id}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{old_id}/losers_bracket", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{old_id}/drafts", json=[{"draft_id": "d2"}]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/d2",
+        json={"draft_id": "d2", "league_id": old_id, "season": "2024"},
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/d2/picks",
+        json=[
+            {"pick_no": 1, "round": 1, "draft_slot": 1, "roster_id": 2, "metadata": {}},
+            {"pick_no": 2, "round": 1, "draft_slot": 2, "roster_id": 1, "metadata": {}},
+        ],
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [
+        {"league_id": current_id, "season": 2025},
+        {"league_id": old_id, "season": 2024},
+    ]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_all_drafts(client, leagues, db_path)
+    return current_id
+
+
+@responses.activate
+def test_report_draft_order_default_excludes_a_manager_no_longer_in_the_league(
+    tmp_path, capsys
+):
+    current_id = _seed_two_season_draft_order(tmp_path)
+
+    exit_code = main(["--root", str(tmp_path), "report", "draft-order", current_id])
+
+    assert exit_code == EXIT_OK
+    assert "Managers:    2" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_draft_order_all_users_includes_a_departed_manager(tmp_path, capsys):
+    current_id = _seed_two_season_draft_order(tmp_path)
+
+    exit_code = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "draft-order",
+            current_id,
+            "--all-users",
+        ]
+    )
+
+    assert exit_code == EXIT_OK
+    assert "Managers:    3" in capsys.readouterr().out
 
 
 def test_report_draft_order_reports_no_draft_picks_table(tmp_path, capsys):

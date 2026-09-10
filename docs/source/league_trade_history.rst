@@ -15,12 +15,20 @@ This is the same ``sleeper_transactions`` table ``sleeper fetch-league
 section if you haven't fetched it yet. No new fetching happens here; this
 command only reads and renders what's already stored.
 
+By default (``--all-users`` not passed) this command only includes managers
+currently rostered in ``league_id``'s own season — 10 of this league's real
+15 all-time managers. Since this page is specifically a full historical
+walkthrough, every example below passes ``--all-users`` to include all 15;
+drop the flag for a leaner, current-roster-only view instead. See
+:doc:`user_guide`'s "Trade network analysis" section for the flag's default
+behavior and why it exists.
+
 Running the command
 -----------------------
 
 .. code-block:: text
 
-   $ nuclearff --root ./demo report trades 1367225133634191360
+   $ nuclearff --root ./demo report trades 1367225133634191360 --all-users
    Managers:                 15
    Trades by manager:        ./demo/data/artifacts/1367225133634191360-trades/trades_by_manager.png
    Trades heatmap:           ./demo/data/artifacts/1367225133634191360-trades/trades_heatmap.png

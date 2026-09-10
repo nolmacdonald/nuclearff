@@ -489,6 +489,16 @@ Trade network analysis
 who trades, who trades with whom, and how that's changed over time. It's
 its own page: :doc:`league_trade_history`.
 
+``--all-users`` (also on ``report wins`` and ``report draft-order`` below):
+by default, only managers currently rostered in ``league_id``'s own season
+appear — a manager from three seasons ago who's no longer in the league is
+left out. Pass ``--all-users`` to include every manager across the league's
+full history instead, the behavior every one of these commands had before
+this flag existed. Default off, since "who's active right now" is usually
+the more useful view; ``--all-users`` is there for a detailed historical
+analysis instead. Implemented as a filter on ``sleeper_standings`` keyed by
+the exact ``league_id`` passed — no new Sleeper fetching either way.
+
 League avatar table
 ------------------------
 
@@ -529,7 +539,7 @@ ending in that manager's real Sleeper headshot instead of a text label:
 
 .. code-block:: text
 
-   $ nuclearff --root ./demo report wins 1367225133634191360
+   $ nuclearff --root ./demo report wins 1367225133634191360 --all-users
    Managers: 15
    Wins:     ./demo/data/artifacts/1367225133634191360-wins.png
 
