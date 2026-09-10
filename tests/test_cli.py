@@ -757,7 +757,7 @@ def test_sleeper_fetch_projections(tmp_path, capsys):
     )
 
     assert exit_code == EXIT_OK
-    assert "Week 1 fetched -- 1 total row(s) now stored" in capsys.readouterr().out
+    assert "Week 1: 1 projections fetched" in capsys.readouterr().out
 
     db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
     with duckdb.connect(str(db_path)) as conn:
@@ -2057,6 +2057,7 @@ def test_report_season_performance_renders_a_png(tmp_path, capsys, league_payloa
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json={"season": "2026", "week": 1})
     for week, actual in ((1, 10.0), (2, 12.0), (3, 14.0)):
         responses.get(
             f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/{week}",
@@ -2121,6 +2122,93 @@ def test_report_season_performance_renders_a_png(tmp_path, capsys, league_payloa
     out = capsys.readouterr().out
     assert "Players:  1" in out
     assert out_path.is_file()
+    # season 2025 != Sleeper's mocked current season (2026) -- no warning.
+    assert "Warning:" not in out
+
+
+@responses.activate
+def test_report_season_performance_warns_when_season_is_still_in_progress(
+    tmp_path, capsys, league_payload
+):
+    """Real gap found during review: season_summary averages in an
+    in-progress week's not-yet-played players (a real 0.0 actual,
+    indistinguishable from a genuine bust) with no per-row guard the way
+    the weekly report's Underperformers list has -- this must at least
+    warn, not silently produce a skewed average."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.players import write_players_table
+    from nuclearff.sleeper.projections import fetch_and_write_projections
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters",
+        json=[{"roster_id": 1, "owner_id": "u1"}],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users",
+        json=[{"user_id": "u1", "display_name": "aperry151"}],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json={"season": "2025", "week": 2})
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1",
+        json=[
+            {
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 10.0,
+                "starters": ["4046"],
+                "starters_points": [10.0],
+                "players_points": {"4046": 10.0},
+            }
+        ],
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/1",
+        json=[
+            {
+                "player_id": "4046",
+                "team": "NE",
+                "position": "QB",
+                "company": "rotowire",
+                "stats": {"pass_yd": 250.0},
+            }
+        ],
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    leagues = [{"league_id": LEAGUE_ID, "season": 2025}]
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        fetch_and_write_standings(client, leagues, db_path)
+        fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+        fetch_and_write_projections(client, 2025, 1, db_path)
+    write_players_table(
+        {"4046": {"full_name": "Drake Maye", "position": "QB", "team": "NE"}}, db_path
+    )
+
+    main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "season-performance",
+            "--season",
+            "2025",
+            "--min-games",
+            "1",
+        ]
+    )
+
+    out = capsys.readouterr().out
+    assert "Warning: season 2025 is Sleeper's current season" in out
 
 
 @responses.activate
@@ -2144,6 +2232,7 @@ def test_report_season_performance_excludes_players_below_min_games(
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=[])
     responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json={"season": "2026", "week": 1})
     responses.get(
         f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1",
         json=[
@@ -2268,6 +2357,101 @@ def test_report_season_performance_reports_no_matchups_for_that_season(
     assert "No sleeper_matchups rows found for season 2099" in capsys.readouterr().out
 
 
+@responses.activate
+def test_report_season_performance_league_id_disambiguates_a_shared_season(
+    tmp_path, capsys, league_payload
+):
+    """Real gap found live 2026-09-10: an account tracking more than one
+    concurrent league in the same season (three real leagues, all season
+    2026) made this command's "exactly one league_id per season"
+    assumption false. --league-id must resolve the ambiguity rather than
+    always erroring."""
+    from nuclearff.sleeper import SleeperClient
+    from nuclearff.sleeper.matchups import fetch_and_write_matchups
+    from nuclearff.sleeper.players import write_players_table
+    from nuclearff.sleeper.projections import fetch_and_write_projections
+    from nuclearff.sleeper.standings import fetch_and_write_standings
+
+    other_league_id = "9999999999"
+    for lid in (LEAGUE_ID, other_league_id):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{lid}/rosters",
+            json=[{"roster_id": 1, "owner_id": "u1"}],
+        )
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{lid}/users",
+            json=[{"user_id": "u1", "display_name": "aperry151"}],
+        )
+        responses.get(f"{TEST_BASE_URL}/v1/league/{lid}/winners_bracket", json=[])
+        responses.get(f"{TEST_BASE_URL}/v1/league/{lid}/losers_bracket", json=[])
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{lid}/matchups/1",
+            json=[
+                {
+                    "roster_id": 1,
+                    "matchup_id": 1,
+                    "points": 10.0,
+                    "starters": ["4046"],
+                    "starters_points": [10.0],
+                    "players_points": {"4046": 10.0},
+                }
+            ],
+        )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(f"{TEST_BASE_URL}/v1/state/nfl", json={"season": "2026", "week": 5})
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/1",
+        json=[
+            {
+                "player_id": "4046",
+                "team": "NE",
+                "position": "QB",
+                "company": "rotowire",
+                "stats": {"pass_yd": 250.0},
+            }
+        ],
+    )
+
+    db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
+    with SleeperClient(
+        cache_dir=tmp_path / "data" / "cache",
+        base_url=TEST_BASE_URL,
+        min_interval=0.0,
+        backoff_factor=0.0,
+    ) as client:
+        for lid in (LEAGUE_ID, other_league_id):
+            leagues = [{"league_id": lid, "season": 2025}]
+            fetch_and_write_standings(client, leagues, db_path)
+            fetch_and_write_matchups(client, leagues, db_path, max_week=1)
+        fetch_and_write_projections(client, 2025, 1, db_path)
+    write_players_table(
+        {"4046": {"full_name": "Drake Maye", "position": "QB", "team": "NE"}}, db_path
+    )
+
+    without_league_id = main(
+        ["--root", str(tmp_path), "report", "season-performance", "--season", "2025"]
+    )
+    assert without_league_id == EXIT_ERROR
+    assert "pass --league-id" in capsys.readouterr().out
+
+    with_league_id = main(
+        [
+            "--root",
+            str(tmp_path),
+            "report",
+            "season-performance",
+            "--season",
+            "2025",
+            "--league-id",
+            LEAGUE_ID,
+            "--min-games",
+            "1",
+        ]
+    )
+    assert with_league_id == EXIT_OK
+    assert f"League:   {LEAGUE_ID}" in capsys.readouterr().out
+
+
 # --- sleeper fetch-projections --through-week -----------------------------------
 
 
@@ -2304,9 +2488,9 @@ def test_sleeper_fetch_projections_through_week_fetches_a_range(tmp_path, capsys
 
     assert exit_code == EXIT_OK
     out = capsys.readouterr().out
-    assert "Week 1 fetched" in out
-    assert "Week 2 fetched" in out
-    assert "Week 3 fetched" in out
+    assert "Week 1: 1 projections fetched" in out
+    assert "Week 2: 1 projections fetched" in out
+    assert "Week 3: 1 projections fetched" in out
     assert len(responses.calls) == 3
 
 

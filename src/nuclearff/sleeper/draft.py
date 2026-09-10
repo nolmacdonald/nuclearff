@@ -22,7 +22,7 @@ from typing import Any
 
 import polars as pl
 
-from nuclearff.duckdb_io import replace_table
+from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
@@ -49,7 +49,7 @@ _COLUMNS = (
 )
 
 _CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     draft_id VARCHAR,
     league_id VARCHAR,
     season INTEGER,
@@ -132,6 +132,15 @@ def fetch_and_write_draft_picks(
 ) -> int:
     """Fetch a draft and its picks, and persist the picks to DuckDB.
 
+    Only replaces rows for this ``draft_id`` (via
+    :func:`nuclearff.duckdb_io.merge_table`), not this draft's whole
+    ``league_id`` -- a league can have more than one draft in a season (see
+    :func:`fetch_and_write_all_drafts`'s docstring), so scoping by
+    ``league_id`` here would erase a sibling draft's picks. Every other
+    draft_id/league_id already in :data:`TABLE_NAME` is left untouched. See
+    :func:`~nuclearff.sleeper.matchups.fetch_and_write_matchups`'s
+    docstring for the cross-league data-loss bug this guards against.
+
     Args:
         client: A configured Sleeper client.
         draft_id: Sleeper draft identifier.
@@ -147,12 +156,14 @@ def fetch_and_write_draft_picks(
     picks = client.get_draft_picks(draft_id)
     rows = draft_pick_rows(draft, picks)
 
-    count = replace_table(
+    count = merge_table(
         db_path,
         table_name,
         _CREATE_TABLE_SQL,
         _COLUMNS,
         [[row[column] for column in _COLUMNS] for row in rows],
+        key_column="draft_id",
+        key_values=[draft_id],
     )
 
     logger.info("Wrote %d draft pick row(s) to %s", count, db_path)
@@ -168,15 +179,22 @@ def fetch_and_write_all_drafts(
 ) -> int:
     """Fetch every draft for every league in a chain and persist them all.
 
-    :func:`fetch_and_write_draft_picks` calls :func:`nuclearff.duckdb_io.
-    replace_table` with only a single draft's rows -- calling it once per
-    season in a loop would silently erase every earlier season's rows,
-    since ``replace_table`` replaces its table wholesale rather than
-    upserting (see that function's own docstring). This function collects
-    every season's picks first and writes them in one call, the same
-    multi-season accumulation shape
+    :func:`fetch_and_write_draft_picks` scopes its write to a single
+    ``draft_id`` -- calling it once per season in a loop would leave every
+    *other* season's drafts for this league untouched, but still miss the
+    point: this function collects every season's picks first and writes
+    them in one call, the same multi-season accumulation shape
     :func:`nuclearff.sleeper.matchups.fetch_and_write_matchups` already
-    uses.
+    uses, then replaces by ``league_id`` (via
+    :func:`nuclearff.duckdb_io.merge_table`) rather than ``draft_id`` --
+    covering every draft a league has at once. Only replaces rows for
+    league_ids successfully queried this call; a league whose own
+    :meth:`~nuclearff.sleeper.client.SleeperClient.get_league_drafts` call
+    failed keeps its previously-written rows untouched rather than being
+    silently erased on a transient refetch failure. Every *other* league
+    already in :data:`TABLE_NAME` is also left untouched. See
+    :func:`~nuclearff.sleeper.matchups.fetch_and_write_matchups`'s
+    docstring for the cross-league data-loss bug this guards against.
 
     A league can have more than one draft in a season (Sleeper's own
     :meth:`SleeperClient.get_league_drafts` returns "every draft associated
@@ -197,6 +215,7 @@ def fetch_and_write_all_drafts(
         The number of pick rows written, across every season and draft.
     """
     rows: list[dict[str, Any]] = []
+    fetched_league_ids: list[str] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
@@ -205,6 +224,8 @@ def fetch_and_write_all_drafts(
         except SleeperAPIError as exc:
             logger.warning("Could not fetch drafts for league %s: %s", league_id, exc)
             continue
+
+        fetched_league_ids.append(league_id)
 
         for draft_summary in drafts:
             draft_id = draft_summary.get("draft_id")
@@ -223,12 +244,14 @@ def fetch_and_write_all_drafts(
                 continue
             rows.extend(draft_pick_rows(draft, picks))
 
-    count = replace_table(
+    count = merge_table(
         db_path,
         table_name,
         _CREATE_TABLE_SQL,
         _COLUMNS,
         [[row[column] for column in _COLUMNS] for row in rows],
+        key_column="league_id",
+        key_values=fetched_league_ids,
     )
 
     logger.info(

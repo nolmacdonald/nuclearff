@@ -95,7 +95,12 @@ def _explode_players_points(
     rows: list[dict[str, Any]] = []
     for row in filtered.iter_rows(named=True):
         manager = names.get(row["roster_id"])
-        if not manager:
+        # `is None`, not a truthiness check -- a real (if unlikely) empty
+        # string display_name is a resolved manager, not an unresolvable
+        # one, matching the explicit `is_not_null()` checks the rest of
+        # this project's manager-identity lookups use (e.g.
+        # nuclearff.sleeper.wins.cumulative_wins).
+        if manager is None:
             continue
         starters = set(json.loads(row["starters"] or "[]"))
         players_points: dict[str, Any] = json.loads(row["players_points"] or "{}")
@@ -230,7 +235,7 @@ def weekly_performance(
     names = players.select(
         "player_id",
         pl.coalesce(pl.col("full_name"), pl.col("last_name")).alias("player_name"),
-        pl.col("position").fill_null("--"),
+        "position",
     )
 
     merged = (
@@ -240,6 +245,13 @@ def weekly_performance(
             pl.coalesce(pl.col("player_name"), pl.col("player_id")).alias(
                 "player_name"
             ),
+            # `fill_null` here, after the join, not inside `names` above --
+            # a `player_id` absent from `players` entirely (not yet
+            # re-fetched, or a defense code) never matches a row in
+            # `names` at all, so a null-check confined to `names` never
+            # sees it: the left join alone produces a null `position` for
+            # that row regardless of what `names` does internally.
+            pl.col("position").fill_null("--"),
             (pl.col("actual_points") - pl.col("projected_points")).alias("delta"),
         )
         .sort("delta", descending=True)

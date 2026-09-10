@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +45,7 @@ import polars as pl
 
 from nuclearff.config.league import ScoringSettings
 from nuclearff.duckdb_io import read_table, replace_table
-from nuclearff.exceptions import StorageError
+from nuclearff.exceptions import SleeperAPIError, StorageError
 from nuclearff.sleeper.client import SleeperClient
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,94 @@ def fetch_and_write_projections(
     return replace_table(
         db_path, table_name, _CREATE_TABLE_SQL, _COLUMNS, merged.select(_COLUMNS).rows()
     )
+
+
+def fetch_and_write_projections_range(
+    client: SleeperClient,
+    season: int,
+    weeks: Sequence[int],
+    db_path: str | Path,
+    *,
+    positions: tuple[str, ...] = DEFAULT_POSITIONS,
+    season_type: str = "regular",
+    table_name: str = TABLE_NAME,
+) -> dict[int, int]:
+    """Fetch multiple weeks of projections and merge them in a single read/write.
+
+    Calling :func:`fetch_and_write_projections` once per week (an earlier
+    version of the CLI's ``sleeper fetch-projections --through-week`` did
+    exactly this) reads and rewrites the *entire*, ever-growing table once
+    per week — a real O(n²) cost in table size for a whole-season batch.
+    This fetches every week first, then reads the existing table and
+    writes the merged result exactly once.
+
+    A week that fails to fetch is logged and skipped, matching
+    :func:`nuclearff.sleeper.matchups.fetch_and_write_matchups`'s posture —
+    and its previously-written rows, if any, are left untouched rather than
+    cleared, since it was never actually refetched this call.
+
+    Args:
+        client: A configured Sleeper client.
+        season: Season to fetch.
+        weeks: Week numbers to fetch.
+        db_path: Path to the DuckDB database file, created if absent.
+        positions: Positions to request from Sleeper.
+        season_type: Sleeper season type, e.g. ``"regular"``.
+        table_name: Destination table.
+
+    Returns:
+        Mapping of week -> rows fetched for that week. A week missing from
+        the mapping failed to fetch entirely (its prior rows, if any,
+        survive untouched).
+    """
+    per_week_counts: dict[int, int] = {}
+    new_rows: list[dict[str, Any]] = []
+
+    for week in weeks:
+        try:
+            entries = client.get_projections(
+                season, week, positions=positions, season_type=season_type
+            )
+        except SleeperAPIError as exc:
+            logger.warning(
+                "Could not fetch projections for season %s week %d: %s",
+                season,
+                week,
+                exc,
+            )
+            continue
+        week_rows = projection_rows(season, week, entries)
+        per_week_counts[week] = len(week_rows)
+        new_rows.extend(week_rows)
+
+    try:
+        existing = read_table(db_path, table_name).with_columns(
+            pl.col(name).cast(dtype) for name, dtype in _SCHEMA.items()
+        )
+    except StorageError:
+        existing = pl.DataFrame(schema=_SCHEMA)
+
+    fetched_weeks = list(per_week_counts)
+    kept = existing.filter(
+        ~((pl.col("season") == season) & (pl.col("week").is_in(fetched_weeks)))
+    )
+    new_frame = (
+        pl.DataFrame(new_rows, schema=_SCHEMA)
+        if new_rows
+        else pl.DataFrame(schema=_SCHEMA)
+    )
+    merged = pl.concat([kept, new_frame], how="vertical")
+
+    replace_table(
+        db_path, table_name, _CREATE_TABLE_SQL, _COLUMNS, merged.select(_COLUMNS).rows()
+    )
+    logger.info(
+        "Fetched %d projection row(s) across %d week(s) for season %s",
+        len(new_rows),
+        len(fetched_weeks),
+        season,
+    )
+    return per_week_counts
 
 
 def score_projection(stats: dict[str, Any], scoring: ScoringSettings) -> float:

@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import replace_table
+from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
@@ -45,7 +45,7 @@ _COLUMNS = (
 )
 
 _CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR,
     season INTEGER,
     week INTEGER,
@@ -111,6 +111,14 @@ def fetch_and_write_matchups(
     rest of the season or the walk, matching
     :func:`nuclearff.sleeper.standings.fetch_and_write_standings`'s posture.
 
+    Only replaces rows for the league_ids in ``leagues`` (via
+    :func:`nuclearff.duckdb_io.merge_table`) -- every other league already
+    in :data:`TABLE_NAME` is left untouched. A prior version of this
+    function called ``replace_table``, which drops the whole table first:
+    fetching league B after league A had already been fetched silently
+    erased league A's rows entirely, confirmed live 2026-09-10 across three
+    real, unrelated leagues on the same account.
+
     Args:
         client: A configured Sleeper client.
         leagues: Raw league payloads for every season to cover, as returned
@@ -143,12 +151,14 @@ def fetch_and_write_matchups(
                 continue
             rows.extend(matchup_rows(league_id, season, week, matchups))
 
-    count = replace_table(
+    count = merge_table(
         db_path,
         table_name,
         _CREATE_TABLE_SQL,
         _COLUMNS,
         [[row[column] for column in _COLUMNS] for row in rows],
+        key_column="league_id",
+        key_values=[str(league["league_id"]) for league in leagues],
     )
 
     logger.info("Wrote %d Sleeper matchup row(s) to %s", count, db_path)

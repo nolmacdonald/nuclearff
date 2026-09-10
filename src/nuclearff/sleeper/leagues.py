@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from nuclearff.config.league import league_config_from_sleeper
-from nuclearff.duckdb_io import replace_table
+from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import ConfigError, SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
@@ -101,7 +101,7 @@ _LEAGUE_COLUMNS = (
 """Columns for :data:`TABLE_NAME`, matching :data:`_LEAGUE_CREATE_TABLE_SQL`'s order."""
 
 _LEAGUE_CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR PRIMARY KEY,
     previous_league_id VARCHAR,
     season INTEGER,
@@ -148,7 +148,7 @@ Sleeper's scoring-key set is not fixed (see
 ``league_id``."""
 
 _CONFIG_CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR PRIMARY KEY,
     season INTEGER,
     name VARCHAR,
@@ -355,11 +355,19 @@ def write_league_tables(
     config_table_name: str = CONFIG_TABLE_NAME,
     fetched_at: datetime | None = None,
 ) -> tuple[int, int]:
-    """Write raw and parsed league history to DuckDB, replacing both tables wholesale.
+    """Write raw and parsed league history to DuckDB for this one chain.
 
-    Each call replaces both tables rather than upserting, matching
-    :func:`nuclearff.sleeper.players.write_players_table` — a chain walk is a
-    full re-fetch, not an incremental feed.
+    Each call replaces both tables' rows for exactly the league_ids in
+    ``leagues`` (via :func:`nuclearff.duckdb_io.merge_table`) — a chain
+    walk is a full re-fetch of *that chain*, not an incremental feed, but
+    every *other* chain's league_ids already in these tables are left
+    untouched. A prior version of this function called
+    :func:`nuclearff.duckdb_io.replace_table`, which drops the whole table
+    first: writing a second, unrelated league's chain silently erased the
+    first league's rows entirely, confirmed live 2026-09-10 across three
+    real, unrelated leagues on the same account. See
+    :func:`~nuclearff.sleeper.matchups.fetch_and_write_matchups`'s
+    docstring for the same bug class in a different table.
 
     Args:
         leagues: Raw league payloads, as returned by :func:`walk_league_chain`.
@@ -376,20 +384,30 @@ def write_league_tables(
     Raises:
         ValueError: If either table name is not a plain identifier.
     """
+    league_ids = [str(league["league_id"]) for league in leagues]
+
     raw_rows = league_rows(leagues, fetched_at=fetched_at)
     raw_values = [[row[column] for column in _LEAGUE_COLUMNS] for row in raw_rows]
-    raw_count = replace_table(
-        db_path, table_name, _LEAGUE_CREATE_TABLE_SQL, _LEAGUE_COLUMNS, raw_values
+    raw_count = merge_table(
+        db_path,
+        table_name,
+        _LEAGUE_CREATE_TABLE_SQL,
+        _LEAGUE_COLUMNS,
+        raw_values,
+        key_column="league_id",
+        key_values=league_ids,
     )
 
     config_rows = league_config_rows(leagues)
     config_values = [[row[column] for column in _CONFIG_COLUMNS] for row in config_rows]
-    config_count = replace_table(
+    config_count = merge_table(
         db_path,
         config_table_name,
         _CONFIG_CREATE_TABLE_SQL,
         _CONFIG_COLUMNS,
         config_values,
+        key_column="league_id",
+        key_values=league_ids,
     )
 
     logger.info(

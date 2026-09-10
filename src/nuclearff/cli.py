@@ -36,7 +36,7 @@ from nuclearff.sleeper import (
     SleeperClient,
     fetch_and_write_all_drafts,
     fetch_and_write_matchups,
-    fetch_and_write_projections,
+    fetch_and_write_projections_range,
     fetch_and_write_roster_players,
     fetch_and_write_standings,
     fetch_and_write_transactions,
@@ -329,6 +329,11 @@ def _cmd_sleeper_fetch_projections(args: argparse.Namespace) -> int:
     :mod:`nuclearff.sleeper.projections`'s module docstring for why this is
     a standalone command rather than a ``fetch-league`` flag.
 
+    A week that fails to fetch is logged and reported, but does not abort
+    the rest of the range — its previously-written rows, if any, survive
+    untouched (see
+    :func:`nuclearff.sleeper.projections.fetch_and_write_projections_range`).
+
     Args:
         args: Parsed arguments carrying ``season``, ``week``, ``positions``,
             and ``through_week`` (fetches ``week``..``through_week``
@@ -349,16 +354,20 @@ def _cmd_sleeper_fetch_projections(args: argparse.Namespace) -> int:
         print(f"--through-week ({last_week}) must be >= --week ({args.week})")
         return EXIT_ERROR
 
-    # fetch_and_write_projections returns the whole table's row count after
-    # each merge, not just the rows fetched this call (it upserts into a
-    # shared, not-per-week table) -- print that running total per week.
-    table_total = 0
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
-        for week in range(args.week, last_week + 1):
-            table_total = fetch_and_write_projections(
-                client, season, week, db_path, positions=tuple(args.positions)
-            )
-            print(f"Week {week} fetched -- {table_total} total row(s) now stored")
+        per_week_counts = fetch_and_write_projections_range(
+            client,
+            season,
+            range(args.week, last_week + 1),
+            db_path,
+            positions=tuple(args.positions),
+        )
+
+    for week in range(args.week, last_week + 1):
+        if week in per_week_counts:
+            print(f"Week {week}: {per_week_counts[week]} projections fetched")
+        else:
+            print(f"Week {week}: failed to fetch, previous rows (if any) untouched")
 
     print(f"Season:   {season}")
     print(f"Weeks:    {args.week}-{last_week}")
@@ -1240,6 +1249,66 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _read_performance_tables(
+    db_path: Path, *, fetch_projections_hint: str
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame] | None:
+    """Read the four tables both performance report commands need.
+
+    Shared by :func:`_cmd_report_performance` and
+    :func:`_cmd_report_season_performance` so the required-table list and
+    error messages can't drift between the two.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        fetch_projections_hint: The exact ``sleeper fetch-projections``
+            invocation to suggest if that table is missing -- the weekly
+            and season commands suggest a different one.
+
+    Returns:
+        ``(matchups, standings, players, projections)`` in that order, or
+        ``None`` if any table is missing (an explanatory message is
+        printed before returning).
+    """
+    from nuclearff.duckdb_io import read_table
+
+    try:
+        matchups = read_table(db_path, "sleeper_matchups")
+    except StorageError:
+        print(
+            "No sleeper_matchups table found. Run "
+            "`nuclearff sleeper fetch-league --matchups` first."
+        )
+        return None
+
+    try:
+        standings = read_table(db_path, "sleeper_standings")
+    except StorageError:
+        print(
+            "No sleeper_standings table found. Run "
+            "`nuclearff sleeper fetch-league --standings` first."
+        )
+        return None
+
+    try:
+        players = read_table(db_path, "sleeper_players")
+    except StorageError:
+        print(
+            "No sleeper_players table found. Run "
+            "`nuclearff sleeper fetch-players` first."
+        )
+        return None
+
+    try:
+        projections = read_table(db_path, "sleeper_projections")
+    except StorageError:
+        print(
+            f"No sleeper_projections table found. Run {fetch_projections_hint} first."
+        )
+        return None
+
+    return matchups, standings, players, projections
+
+
 def _cmd_report_performance(args: argparse.Namespace) -> int:
     """Render a weekly over/underperformer table: actual vs. projected points.
 
@@ -1260,48 +1329,22 @@ def _cmd_report_performance(args: argparse.Namespace) -> int:
         An exit code.
     """
     from nuclearff.config.league import league_config_from_sleeper
-    from nuclearff.duckdb_io import read_table
     from nuclearff.report import render_weekly_performance_table
     from nuclearff.sleeper.performance import weekly_actuals, weekly_performance
 
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
 
-    try:
-        matchups = read_table(db_path, "sleeper_matchups")
-    except StorageError:
-        print(
-            "No sleeper_matchups table found. Run "
-            "`nuclearff sleeper fetch-league --matchups` first."
-        )
+    tables = _read_performance_tables(
+        db_path,
+        fetch_projections_hint=(
+            f"`nuclearff sleeper fetch-projections --season <season> "
+            f"--week {args.week}`"
+        ),
+    )
+    if tables is None:
         return EXIT_ERROR
-
-    try:
-        standings = read_table(db_path, "sleeper_standings")
-    except StorageError:
-        print(
-            "No sleeper_standings table found. Run "
-            "`nuclearff sleeper fetch-league --standings` first."
-        )
-        return EXIT_ERROR
-
-    try:
-        players = read_table(db_path, "sleeper_players")
-    except StorageError:
-        print(
-            "No sleeper_players table found. Run "
-            "`nuclearff sleeper fetch-players` first."
-        )
-        return EXIT_ERROR
-
-    try:
-        projections = read_table(db_path, "sleeper_projections")
-    except StorageError:
-        print(
-            "No sleeper_projections table found. Run `nuclearff sleeper "
-            f"fetch-projections --season <season> --week {args.week}` first."
-        )
-        return EXIT_ERROR
+    matchups, standings, players, projections = tables
 
     actuals = weekly_actuals(matchups, standings, args.league_id, args.week)
     if actuals.height == 0:
@@ -1348,11 +1391,14 @@ def _cmd_report_season_performance(args: argparse.Namespace) -> int:
 
     Unlike ``report performance`` (which takes a specific ``league_id``,
     since the single ongoing week's league_id is usually already known),
-    this takes ``--season`` directly and resolves that season's own
-    ``league_id`` from ``sleeper_matchups`` -- every multi-season fetch in
-    this project already keys each season's rows by that season's own
-    distinct ``league_id`` (the same fact ``_current_league_managers``
-    relies on), so no positional ``league_id`` argument is needed here.
+    this takes ``--season`` directly and, when exactly one league_id
+    fetched that season, resolves it from ``sleeper_matchups`` -- every
+    multi-season fetch in this project already keys each season's rows by
+    that season's own distinct ``league_id`` (the same fact
+    ``_current_league_managers`` relies on), so no positional ``league_id``
+    argument is needed for the common case. An account tracking more than
+    one concurrent league in the same season (confirmed live 2026-09-10)
+    makes that ambiguous; pass ``--league-id`` to disambiguate.
 
     Reads ``sleeper_matchups``, ``sleeper_standings``, ``sleeper_players``,
     and ``sleeper_projections`` -- all four required, same as ``report
@@ -1363,16 +1409,22 @@ def _cmd_report_season_performance(args: argparse.Namespace) -> int:
     posture :func:`nuclearff.sleeper.performance.weekly_performance`
     already takes for a single week.
 
+    Prints a warning (does not block) when ``--season`` matches Sleeper's
+    own current season, since an in-progress week's not-yet-played players
+    read as a real ``0.0`` actual, skewing the averages -- see
+    :func:`nuclearff.sleeper.performance.season_summary`'s docstring for
+    why that ambiguity has no per-row guard the way the weekly report does.
+
     Args:
-        args: Parsed arguments carrying ``season``, ``out``, ``top_n``,
-            ``min_games``, and ``all_players`` (default ``False``: only a
-            roster's actual starters; ``True``: bench players too).
+        args: Parsed arguments carrying ``season``, ``league_id`` (optional
+            disambiguator), ``out``, ``top_n``, ``min_games``, and
+            ``all_players`` (default ``False``: only a roster's actual
+            starters; ``True``: bench players too).
 
     Returns:
         An exit code.
     """
     from nuclearff.config.league import league_config_from_sleeper
-    from nuclearff.duckdb_io import read_table
     from nuclearff.report import render_season_performance_table
     from nuclearff.sleeper.performance import (
         season_actuals,
@@ -1383,42 +1435,16 @@ def _cmd_report_season_performance(args: argparse.Namespace) -> int:
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
 
-    try:
-        matchups = read_table(db_path, "sleeper_matchups")
-    except StorageError:
-        print(
-            "No sleeper_matchups table found. Run "
-            "`nuclearff sleeper fetch-league --matchups` first."
-        )
+    tables = _read_performance_tables(
+        db_path,
+        fetch_projections_hint=(
+            f"`nuclearff sleeper fetch-projections --season {args.season} "
+            f"--week 1 --through-week <N>`"
+        ),
+    )
+    if tables is None:
         return EXIT_ERROR
-
-    try:
-        standings = read_table(db_path, "sleeper_standings")
-    except StorageError:
-        print(
-            "No sleeper_standings table found. Run "
-            "`nuclearff sleeper fetch-league --standings` first."
-        )
-        return EXIT_ERROR
-
-    try:
-        players = read_table(db_path, "sleeper_players")
-    except StorageError:
-        print(
-            "No sleeper_players table found. Run "
-            "`nuclearff sleeper fetch-players` first."
-        )
-        return EXIT_ERROR
-
-    try:
-        projections = read_table(db_path, "sleeper_projections")
-    except StorageError:
-        print(
-            "No sleeper_projections table found. Run `nuclearff sleeper "
-            f"fetch-projections --season {args.season} --week 1 "
-            "--through-week <N>` first."
-        )
-        return EXIT_ERROR
+    matchups, standings, players, projections = tables
 
     season_league_ids = sorted(
         matchups.filter(pl.col("season") == args.season)["league_id"].unique().to_list()
@@ -1426,14 +1452,29 @@ def _cmd_report_season_performance(args: argparse.Namespace) -> int:
     if not season_league_ids:
         print(f"No sleeper_matchups rows found for season {args.season}.")
         return EXIT_ERROR
-    if len(season_league_ids) > 1:
+    if args.league_id is not None:
+        if args.league_id not in season_league_ids:
+            print(
+                f"league_id {args.league_id} has no sleeper_matchups rows "
+                f"for season {args.season}. Leagues found for that season: "
+                f"{season_league_ids}."
+            )
+            return EXIT_ERROR
+        league_id = args.league_id
+    elif len(season_league_ids) > 1:
+        # A real, previously-unhandled case: an account tracking more than
+        # one concurrent league in the same season (confirmed live
+        # 2026-09-10 -- three real leagues on one account, all season
+        # 2026) makes "one league per season" false, the assumption this
+        # command's whole no-positional-league_id design rested on.
         print(
             f"Season {args.season} spans more than one league_id in "
-            f"sleeper_matchups ({season_league_ids}) -- not expected, "
-            "needs a human look."
+            f"sleeper_matchups ({season_league_ids}) -- pass --league-id "
+            "to pick one."
         )
         return EXIT_ERROR
-    league_id = season_league_ids[0]
+    else:
+        league_id = season_league_ids[0]
 
     actuals = season_actuals(matchups, standings, league_id)
     if actuals.height == 0:
@@ -1442,7 +1483,24 @@ def _cmd_report_season_performance(args: argparse.Namespace) -> int:
 
     with SleeperClient(cache_dir=config.paths.cache_dir) as client:
         league_json = client.get_league(league_id)
+        state = client.get_state()
     league_config = league_config_from_sleeper(league_json)
+
+    # A season this project can't yet know is fully complete: Sleeper's own
+    # `state.season` is still this one. Averaging in an in-progress week is
+    # the same real problem `report performance`'s own Underperformers list
+    # already guards against for a single week (a not-yet-played game reads
+    # as a real `0.0` actual, indistinguishable from a genuine bust) --
+    # season_summary has no per-row guard for it (a completed season has no
+    # such rows to begin with), so this is a warning, not a silent average.
+    if str(args.season) == str(state.get("season")):
+        print(
+            f"Warning: season {args.season} is Sleeper's current season "
+            f"(week {state.get('week')}, {state.get('season_type')}) -- "
+            "any week that hasn't finished yet will show a real 0.0 actual "
+            "point total, which this report can't distinguish from a "
+            "genuine bust, and that will skew the averages below."
+        )
 
     performance = weekly_performance(
         actuals,
@@ -1859,6 +1917,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     season_performance.add_argument(
         "--season", required=True, type=int, help="Season year, e.g. 2025"
+    )
+    season_performance.add_argument(
+        "--league-id",
+        default=None,
+        help=(
+            "Disambiguate which league_id to use for --season -- only "
+            "needed if more than one league was fetched for that season "
+            "(e.g. tracking multiple concurrent leagues on one account)"
+        ),
     )
     season_performance.add_argument(
         "--top-n",

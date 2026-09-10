@@ -169,6 +169,35 @@ def test_fetch_and_write_draft_picks_before_any_pick_is_made(client, tmp_path):
     assert count == 0
 
 
+@responses.activate
+def test_fetch_and_write_draft_picks_does_not_erase_a_sibling_draft(client, tmp_path):
+    """A league can have more than one draft in a season (see
+    fetch_and_write_all_drafts's docstring) -- writing one draft's picks
+    must not erase a *different* draft's picks that happen to share the
+    same league_id, which is why this scopes its replace by draft_id, not
+    league_id."""
+    sibling_draft_id = "sibling-draft"
+    sibling_draft = {**DRAFT, "draft_id": sibling_draft_id}
+    sibling_picks = [{**PICKS[0], "draft_id": sibling_draft_id}]
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=PICKS)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{sibling_draft_id}", json=sibling_draft)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/{sibling_draft_id}/picks", json=sibling_picks
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_draft_picks(client, DRAFT_ID, db_path)
+    fetch_and_write_draft_picks(client, sibling_draft_id, db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        draft_ids = {
+            row[0]
+            for row in conn.execute(f"SELECT draft_id FROM {TABLE_NAME}").fetchall()
+        }
+    assert draft_ids == {DRAFT_ID, sibling_draft_id}
+
+
 # --- fetch_and_write_all_drafts (GitHub Issue 85) -----------------------
 
 _OTHER_DRAFT_ID = "999"
@@ -240,6 +269,45 @@ def test_fetch_and_write_all_drafts_skips_a_league_whose_drafts_fail(client, tmp
     count = fetch_and_write_all_drafts(client, leagues, db_path)
 
     assert count == len(PICKS)
+
+
+@responses.activate
+def test_fetch_and_write_all_drafts_does_not_erase_a_different_calls_league(
+    client, tmp_path
+):
+    """Real bug fixed 2026-09-10: calling this once per league (the CLI's
+    real usage pattern -- one `sleeper fetch-league --drafts` invocation
+    per league_id, not one combined call across leagues) used to silently
+    erase the previous call's league entirely, confirmed live across three
+    real leagues on the same account."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/drafts", json=[{"draft_id": DRAFT_ID}]
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=PICKS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{_OTHER_LEAGUE_ID}/drafts",
+        json=[{"draft_id": _OTHER_DRAFT_ID}],
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{_OTHER_DRAFT_ID}", json=_OTHER_DRAFT)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/draft/{_OTHER_DRAFT_ID}/picks", json=_OTHER_PICKS
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_all_drafts(
+        client, [{"league_id": LEAGUE_ID, "season": 2026}], db_path
+    )
+    fetch_and_write_all_drafts(
+        client, [{"league_id": _OTHER_LEAGUE_ID, "season": 2025}], db_path
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        league_ids = {
+            row[0]
+            for row in conn.execute(f"SELECT league_id FROM {TABLE_NAME}").fetchall()
+        }
+    assert league_ids == {LEAGUE_ID, _OTHER_LEAGUE_ID}
 
 
 # --- draft_order_stats (GitHub Issue 85) ---------------------------------

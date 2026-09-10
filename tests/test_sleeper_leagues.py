@@ -278,15 +278,44 @@ def test_write_league_tables_config_count_can_trail_raw_count(league_payload, tm
     assert config_count == 1
 
 
-def test_write_league_tables_replaces_rather_than_appends(league_payload, tmp_path):
-    """A second, shorter walk reflects only the latest chain, not both."""
+def test_write_league_tables_refetching_one_league_replaces_only_its_own_rows(
+    league_payload, tmp_path
+):
+    """Real bug fixed 2026-09-10: writing a second, unrelated league's chain
+    used to silently erase every row from a previously-written, different
+    league's chain -- confirmed live across three real leagues on the same
+    account. A re-fetch must only ever replace that same league_id's own
+    rows."""
     db_path = tmp_path / "nuclearff.duckdb"
-    write_league_tables([league_payload, {"league_id": "old", "season": 2000}], db_path)
+    other_league_id = "some-other-league"
+    write_league_tables([{"league_id": other_league_id, "season": 2000}], db_path)
 
     raw_count, config_count = write_league_tables([league_payload], db_path)
 
     assert raw_count == 1
     assert config_count == 1
+    with duckdb.connect(str(db_path)) as conn:
+        raw_ids = {
+            row[0]
+            for row in conn.execute(f"SELECT league_id FROM {TABLE_NAME}").fetchall()
+        }
+
+    # The other league's row survives untouched; this league's own row is
+    # present exactly once (not duplicated by the second call).
+    assert raw_ids == {other_league_id, LEAGUE_ID}
+
+
+def test_write_league_tables_refetching_the_same_league_does_not_duplicate(
+    league_payload, tmp_path
+):
+    """A second write for the *same* league_id still replaces (not appends
+    to) that league_id's own row -- the fix for cross-league data loss must
+    not turn this into an accumulating duplicate feed either."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    write_league_tables([league_payload], db_path)
+
+    write_league_tables([league_payload], db_path)
+
     with duckdb.connect(str(db_path)) as conn:
         (total,) = conn.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
 

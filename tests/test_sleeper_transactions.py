@@ -202,6 +202,45 @@ def test_fetch_and_write_transactions_round_trips_through_duckdb(client, tmp_pat
 
 
 @responses.activate
+def test_fetch_and_write_transactions_does_not_erase_another_leagues_rows(
+    client, tmp_path
+):
+    """Real bug fixed 2026-09-10: fetching a second, unrelated league used
+    to silently erase every row from a previously-fetched, different
+    league -- confirmed live across three real leagues on the same
+    account, since the old write always dropped the whole shared table
+    first."""
+    other_league_id = "9999999999"
+    other_waiver = {**WAIVER_COMPLETE, "transaction_id": "other-league-txn"}
+    for lid, waiver in ((LEAGUE_ID, WAIVER_COMPLETE), (other_league_id, other_waiver)):
+        responses.get(f"{TEST_BASE_URL}/v1/league/{lid}/rosters", json=[])
+        responses.get(f"{TEST_BASE_URL}/v1/league/{lid}/users", json=[])
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{lid}/transactions/1",
+            json=[waiver],
+        )
+        for week in range(2, 19):
+            responses.get(
+                f"{TEST_BASE_URL}/v1/league/{lid}/transactions/{week}", json=[]
+            )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_transactions(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+    fetch_and_write_transactions(
+        client, [{"league_id": other_league_id, "season": 2025}], db_path
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        league_ids = {
+            row[0]
+            for row in conn.execute(f"SELECT league_id FROM {TABLE_NAME}").fetchall()
+        }
+    assert league_ids == {LEAGUE_ID, other_league_id}
+
+
+@responses.activate
 def test_fetch_and_write_transactions_skips_a_failed_week_without_aborting(
     client, tmp_path
 ):

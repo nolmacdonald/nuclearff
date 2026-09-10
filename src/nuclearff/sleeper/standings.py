@@ -40,7 +40,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import replace_table
+from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
@@ -71,7 +71,7 @@ _STANDINGS_COLUMNS = (
 )
 
 _STANDINGS_CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR,
     season INTEGER,
     roster_id INTEGER,
@@ -104,7 +104,7 @@ _MATCHES_COLUMNS = (
 )
 
 _MATCHES_CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR,
     season INTEGER,
     bracket VARCHAR,
@@ -394,6 +394,12 @@ def fetch_and_write_standings(
     type that never generates one) is valid data, not a failure — it simply
     yields no placement rows for that season.
 
+    Only replaces rows for the league_ids in ``leagues`` (via
+    :func:`nuclearff.duckdb_io.merge_table`) -- every other league already
+    in these tables is left untouched. See :func:`~nuclearff.sleeper.
+    matchups.fetch_and_write_matchups`'s docstring for the cross-league
+    data-loss bug this guards against.
+
     Args:
         client: A configured Sleeper client.
         leagues: Raw league payloads for every season to cover, as returned
@@ -464,19 +470,24 @@ def fetch_and_write_standings(
         )
         matches.extend(bracket_match_rows(league_id, season, "losers", losers_bracket))
 
-    standings_count = replace_table(
+    league_ids = [str(league["league_id"]) for league in leagues]
+    standings_count = merge_table(
         db_path,
         table_name,
         _STANDINGS_CREATE_TABLE_SQL,
         _STANDINGS_COLUMNS,
         [[row[column] for column in _STANDINGS_COLUMNS] for row in standings],
+        key_column="league_id",
+        key_values=league_ids,
     )
-    matches_count = replace_table(
+    matches_count = merge_table(
         db_path,
         matches_table_name,
         _MATCHES_CREATE_TABLE_SQL,
         _MATCHES_COLUMNS,
         [[row[column] for column in _MATCHES_COLUMNS] for row in matches],
+        key_column="league_id",
+        key_values=league_ids,
     )
 
     logger.info(

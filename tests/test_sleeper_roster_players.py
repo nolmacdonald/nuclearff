@@ -174,3 +174,65 @@ def test_fetch_and_write_roster_players_replaces_rather_than_appends(client, tmp
     with duckdb.connect(str(db_path)) as conn:
         (total,) = conn.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
     assert total == 2
+
+
+@responses.activate
+def test_fetch_and_write_roster_players_does_not_erase_another_leagues_rows(
+    client, tmp_path
+):
+    """Real bug fixed 2026-09-10: fetching a second, unrelated league used
+    to silently erase every row from a previously-fetched, different
+    league -- confirmed live across three real leagues on the same
+    account, since the old write always dropped the whole shared table
+    first."""
+    other_league_id = "9999999999"
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[POPULATED_ROSTER]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{other_league_id}/rosters", json=[TAXI_ROSTER]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_roster_players(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+    fetch_and_write_roster_players(
+        client, [{"league_id": other_league_id, "season": 2025}], db_path
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        league_ids = {
+            row[0]
+            for row in conn.execute(f"SELECT league_id FROM {TABLE_NAME}").fetchall()
+        }
+    assert league_ids == {LEAGUE_ID, other_league_id}
+
+
+@responses.activate
+def test_fetch_and_write_roster_players_preserves_a_league_that_failed_this_call(
+    client, tmp_path
+):
+    """A transient refetch failure for one league must not erase that
+    league's previously-good rows -- distinct from the cross-league bug
+    above, this is about the *same* league failing on a later call."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[POPULATED_ROSTER]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    fetch_and_write_roster_players(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", status=500)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", status=500)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", status=500)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", status=500)
+    count = fetch_and_write_roster_players(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+
+    assert count == 0
+    with duckdb.connect(str(db_path)) as conn:
+        (total,) = conn.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
+    assert total == len(roster_player_rows(LEAGUE_ID, 2025, [POPULATED_ROSTER]))

@@ -389,6 +389,51 @@ def test_fetch_and_write_standings_round_trips_through_duckdb(client, tmp_path):
 
 
 @responses.activate
+def test_fetch_and_write_standings_does_not_erase_another_leagues_rows(
+    client, tmp_path
+):
+    """Real bug fixed 2026-09-10: fetching a second, unrelated league used
+    to silently erase every row from a previously-fetched, different
+    league -- confirmed live across three real leagues on the same
+    account, since the old write always dropped the whole shared table
+    first."""
+    other_league_id = "9999999999"
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=WINNERS_BRACKET
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=LOSERS_BRACKET
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{other_league_id}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{other_league_id}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{other_league_id}/winners_bracket", json=[]
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{other_league_id}/losers_bracket", json=[]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_standings(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+    fetch_and_write_standings(
+        client, [{"league_id": other_league_id, "season": 2025}], db_path
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        league_ids = {
+            row[0]
+            for row in conn.execute(
+                f"SELECT league_id FROM {STANDINGS_TABLE_NAME}"
+            ).fetchall()
+        }
+    assert league_ids == {LEAGUE_ID, other_league_id}
+
+
+@responses.activate
 def test_fetch_and_write_standings_handles_a_chopped_league(client, tmp_path, caplog):
     """A Chopped league's null bracket response quietly yields a real final_rank."""
     responses.get(

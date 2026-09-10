@@ -7,16 +7,19 @@ test in this repo.
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 import duckdb
 import pytest
 import responses
 
 from nuclearff.config.league import ScoringSettings
+from nuclearff.duckdb_io import replace_table
 from nuclearff.sleeper import SleeperClient
 from nuclearff.sleeper.projections import (
     TABLE_NAME,
     fetch_and_write_projections,
+    fetch_and_write_projections_range,
     projection_rows,
     score_projection,
     unscored_projection_keys,
@@ -196,3 +199,110 @@ def test_fetch_and_write_projections_replaces_a_refetched_week(client, tmp_path)
     count = fetch_and_write_projections(client, 2025, 1, db_path)
 
     assert count == 1
+
+
+# --- fetch_and_write_projections_range ----------------------------------------
+
+
+@responses.activate
+def test_fetch_and_write_projections_range_fetches_every_week_in_one_write(
+    client, tmp_path
+):
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", json=PROJECTIONS_WEEK_1)
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/2", json=[PROJECTIONS_WEEK_1[0]]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    counts = fetch_and_write_projections_range(client, 2025, [1, 2], db_path)
+
+    assert counts == {1: 2, 2: 1}
+    with duckdb.connect(str(db_path)) as conn:
+        weeks = sorted(
+            row[0] for row in conn.execute(f"SELECT week FROM {TABLE_NAME}").fetchall()
+        )
+    assert weeks == [1, 1, 2]
+
+
+@responses.activate
+def test_fetch_and_write_projections_range_does_not_erase_another_season(
+    client, tmp_path
+):
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2024/1", json=PROJECTIONS_WEEK_1)
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/1", json=[PROJECTIONS_WEEK_1[0]]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_projections_range(client, 2024, [1], db_path)
+    fetch_and_write_projections_range(client, 2025, [1], db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        seasons = {
+            row[0]
+            for row in conn.execute(f"SELECT season FROM {TABLE_NAME}").fetchall()
+        }
+    assert seasons == {2024, 2025}
+
+
+@responses.activate
+def test_fetch_and_write_projections_range_skips_a_failed_week_without_aborting(
+    client, tmp_path
+):
+    """A bad week must not crash the whole batch, matching
+    fetch_and_write_matchups's posture."""
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", json=PROJECTIONS_WEEK_1)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/2", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/2", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/2", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/2", status=500)
+    responses.get(
+        f"{TEST_BASE_URL}/projections/nfl/2025/3", json=[PROJECTIONS_WEEK_1[0]]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    counts = fetch_and_write_projections_range(client, 2025, [1, 2, 3], db_path)
+
+    assert counts == {1: 2, 3: 1}
+    assert 2 not in counts
+
+
+@responses.activate
+def test_fetch_and_write_projections_range_preserves_a_week_that_failed_this_call(
+    client, tmp_path
+):
+    """A transient failure on a refetch must not erase that week's
+    previously-good rows."""
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", json=PROJECTIONS_WEEK_1)
+    db_path = tmp_path / "nuclearff.duckdb"
+    fetch_and_write_projections_range(client, 2025, [1], db_path)
+
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", status=500)
+    responses.get(f"{TEST_BASE_URL}/projections/nfl/2025/1", status=500)
+    counts = fetch_and_write_projections_range(client, 2025, [1], db_path)
+
+    assert counts == {}
+    with duckdb.connect(str(db_path)) as conn:
+        (total,) = conn.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
+    assert total == len(PROJECTIONS_WEEK_1)
+
+
+@responses.activate
+def test_fetch_and_write_projections_range_only_reads_and_writes_once(client, tmp_path):
+    """The real O(n^2) problem this exists to avoid: fetching N weeks must
+    not read/write the whole table N times."""
+    for week in range(1, 6):
+        responses.get(
+            f"{TEST_BASE_URL}/projections/nfl/2025/{week}",
+            json=[PROJECTIONS_WEEK_1[0]],
+        )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    with patch(
+        "nuclearff.sleeper.projections.replace_table", wraps=replace_table
+    ) as spy:
+        fetch_and_write_projections_range(client, 2025, [1, 2, 3, 4, 5], db_path)
+
+    assert spy.call_count == 1

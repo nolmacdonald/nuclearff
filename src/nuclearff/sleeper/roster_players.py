@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import replace_table
+from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import SleeperAPIError
 from nuclearff.sleeper.client import SleeperClient
 
@@ -28,7 +28,7 @@ TABLE_NAME = "sleeper_roster_players"
 _COLUMNS = ("league_id", "season", "roster_id", "player_id", "slot")
 
 _CREATE_TABLE_SQL = """
-CREATE TABLE {table} (
+CREATE TABLE IF NOT EXISTS {table} (
     league_id VARCHAR,
     season INTEGER,
     roster_id INTEGER,
@@ -124,6 +124,14 @@ def fetch_and_write_roster_players(
     aborting the whole walk, matching
     :func:`nuclearff.sleeper.standings.fetch_and_write_standings`'s posture.
 
+    Only replaces rows for league_ids actually fetched this call (via
+    :func:`nuclearff.duckdb_io.merge_table`) -- both every *other* league
+    already in :data:`TABLE_NAME`, and a league in ``leagues`` whose own
+    fetch failed this call, are left untouched: a transient failure on
+    refetch must not erase that league's previously-good rows. See
+    :func:`~nuclearff.sleeper.matchups.fetch_and_write_matchups`'s
+    docstring for the cross-league data-loss bug this guards against.
+
     Args:
         client: A configured Sleeper client.
         leagues: Raw league payloads for every season to cover, as returned
@@ -135,6 +143,7 @@ def fetch_and_write_roster_players(
         The number of rows written.
     """
     rows: list[dict[str, Any]] = []
+    fetched_league_ids: list[str] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
@@ -146,14 +155,17 @@ def fetch_and_write_roster_players(
             logger.warning("Could not fetch rosters for league %s: %s", league_id, exc)
             continue
 
+        fetched_league_ids.append(league_id)
         rows.extend(roster_player_rows(league_id, season, rosters))
 
-    count = replace_table(
+    count = merge_table(
         db_path,
         table_name,
         _CREATE_TABLE_SQL,
         _COLUMNS,
         [[row[column] for column in _COLUMNS] for row in rows],
+        key_column="league_id",
+        key_values=fetched_league_ids,
     )
 
     logger.info("Wrote %d roster-player row(s) to %s", count, db_path)

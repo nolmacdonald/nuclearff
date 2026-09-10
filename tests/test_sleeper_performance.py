@@ -302,7 +302,14 @@ def test_weekly_performance_falls_back_to_player_id_with_no_name():
 
     performance = weekly_performance(actuals, projections, players, scoring)
 
-    assert performance.row(0, named=True)["player_name"] == "100"
+    row = performance.row(0, named=True)
+    assert row["player_name"] == "100"
+    # Real bug: a player_id absent from `players` entirely never matches
+    # the left join at all, so a null-check confined to `players` alone
+    # (tried first) never sees it -- only a fill applied after the join
+    # catches this case, unlike `player_name`'s coalesce which already
+    # lived there.
+    assert row["position"] == "--"
 
 
 def test_weekly_performance_fills_a_null_projection_team_rather_than_rendering_nan():

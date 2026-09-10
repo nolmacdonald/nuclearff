@@ -20,7 +20,11 @@ from nuclearff.sleeper.models import (
     SnapshotMetadata,
 )
 from nuclearff.sleeper.players import player_rows, write_players_table
-from nuclearff.sleeper.projections import fetch_and_write_projections, projection_rows
+from nuclearff.sleeper.projections import (
+    fetch_and_write_projections,
+    fetch_and_write_projections_range,
+    projection_rows,
+)
 from nuclearff.sleeper.roster_players import (
     fetch_and_write_roster_players,
     roster_player_rows,
@@ -65,6 +69,7 @@ __all__ = [
     "fetch_and_write_draft_picks",
     "fetch_and_write_matchups",
     "fetch_and_write_projections",
+    "fetch_and_write_projections_range",
     "fetch_and_write_roster_players",
     "fetch_and_write_standings",
     "fetch_and_write_transactions",
