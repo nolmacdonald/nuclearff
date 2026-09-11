@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import polars as pl
+
 from nuclearff.config.league import league_config_from_sleeper
 from nuclearff.duckdb_io import merge_table
 from nuclearff.exceptions import ConfigError, SleeperAPIError
@@ -252,6 +254,45 @@ def walk_league_chain(
         )
 
     return leagues
+
+
+def league_chain_ids(leagues: pl.DataFrame, league_id: str) -> list[str]:
+    """Resolve every ``league_id`` in ``league_id``'s chain from persisted rows.
+
+    Unlike :func:`walk_league_chain`, this is a pure lookup against
+    :data:`TABLE_NAME` rows an earlier ``sleeper fetch-league --history`` run
+    already wrote — no live Sleeper calls. Built for issue #118: the same
+    DuckDB cache can hold multiple, unrelated leagues (real for this
+    project's own dev/demo cache), so a report meant to cover one franchise's
+    full multi-season history needs to scope itself to that franchise's real
+    chain rather than either a single season or every league in the cache —
+    the same class of cross-league mixing the 2026-09-10 ``merge_table`` fix
+    addressed for writes, here on the read side.
+
+    Args:
+        leagues: :data:`TABLE_NAME` rows (``league_id``,
+            ``previous_league_id``).
+        league_id: The season to start from.
+
+    Returns:
+        Every ``league_id`` in the chain, including ``league_id`` itself. A
+        ``league_id`` absent from ``leagues`` (e.g. history was never
+        fetched) returns just itself, not an empty list — callers can still
+        scope to the one season they know about.
+    """
+    previous_by_id = {
+        row["league_id"]: row.get("previous_league_id") for row in leagues.to_dicts()
+    }
+
+    chain = {league_id}
+    current = league_id
+    while True:
+        previous = previous_by_id.get(current)
+        if not previous or previous in chain:
+            break
+        chain.add(previous)
+        current = previous
+    return list(chain)
 
 
 def league_rows(

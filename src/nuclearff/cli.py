@@ -1249,6 +1249,84 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
+    """Render transactions that happened on a real calendar date.
+
+    Reads ``sleeper_transactions`` (``sleeper fetch-league --transactions``),
+    scoped to ``league_id``'s full multi-season chain via
+    ``sleeper_leagues`` (``sleeper fetch-league --history``) when that table
+    exists -- falls back to just ``league_id``'s own season, with a warning,
+    otherwise. Player names in the rendered summary resolve from
+    ``sleeper_players`` (``sleeper fetch-players``) if present, else fall
+    back to the raw Sleeper player id.
+
+    Args:
+        args: Parsed arguments carrying ``league_id``, ``date`` (ISO
+            ``YYYY-MM-DD``, default today), and ``out``.
+
+    Returns:
+        An exit code.
+    """
+    from datetime import date as date_cls
+
+    from nuclearff.archive.on_this_day import (
+        transaction_summary_rows,
+        transactions_on_this_day,
+    )
+    from nuclearff.duckdb_io import read_table
+    from nuclearff.report import render_on_this_day_table
+    from nuclearff.sleeper.leagues import league_chain_ids
+
+    config = _resolve_config(args)
+    db_path = config.paths.cache_dir / "nuclearff.duckdb"
+
+    try:
+        transactions = read_table(db_path, "sleeper_transactions")
+    except StorageError:
+        print(
+            "No sleeper_transactions table found. Run "
+            "`nuclearff sleeper fetch-league --transactions` first."
+        )
+        return EXIT_ERROR
+
+    try:
+        leagues = read_table(db_path, "sleeper_leagues")
+        chain_ids = league_chain_ids(leagues, args.league_id)
+        transactions = transactions.filter(pl.col("league_id").is_in(chain_ids))
+    except StorageError:
+        transactions = transactions.filter(pl.col("league_id") == args.league_id)
+        print(
+            "Warning: no sleeper_leagues table found, scoping to this "
+            "season only (not the full franchise history). Run "
+            "`nuclearff sleeper fetch-league --history` for multi-season "
+            "on-this-day coverage."
+        )
+
+    today = date_cls.fromisoformat(args.date) if args.date else date_cls.today()
+    matches = transactions_on_this_day(transactions, today)
+
+    players = None
+    try:
+        players = read_table(db_path, "sleeper_players")
+    except StorageError:
+        pass
+
+    summary = transaction_summary_rows(matches, players)
+
+    out_path = (
+        Path(args.out)
+        if args.out
+        else config.paths.artifacts_dir
+        / f"{args.league_id}-on-this-day-{today:%m-%d}.png"
+    )
+    written = render_on_this_day_table(summary, today, out_path)
+
+    print(f"Date:        {today:%B %-d}")
+    print(f"Matches:     {summary.height}")
+    print(f"On this day: {written}")
+    return EXIT_OK
+
+
 def _read_performance_tables(
     db_path: Path, *, fetch_projections_hint: str
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame] | None:
@@ -1878,6 +1956,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     draft_order.add_argument("--all-users", action="store_true", help=all_users_help)
     draft_order.set_defaults(func=_cmd_report_draft_order)
+
+    on_this_day = report_commands.add_parser(
+        "on-this-day",
+        help="Render transactions that happened on this calendar date, across history",
+    )
+    on_this_day.add_argument(
+        "league_id",
+        help="Sleeper league identifier (any season in the franchise chain)",
+    )
+    on_this_day.add_argument(
+        "--date", default=None, help="Date to look up, YYYY-MM-DD (default: today)"
+    )
+    on_this_day.add_argument(
+        "--out",
+        default=None,
+        help=(
+            "Output PNG path (default: <artifacts>/<league_id>-on-this-day-<MM-DD>.png)"
+        ),
+    )
+    on_this_day.set_defaults(func=_cmd_report_on_this_day)
 
     performance = report_commands.add_parser(
         "performance",
