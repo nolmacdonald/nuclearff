@@ -91,12 +91,39 @@ def render_on_this_day_table(
 
     from plottable import ColumnDefinition, Table
 
-    ordered = summary_rows.sort("year", descending=True)
+    # `maintain_order=True`: a real trade explodes into 2+ rows sharing one
+    # `year` (transaction_summary_rows' `group_id`) -- the default unstable
+    # sort could otherwise separate them, breaking the same-transaction
+    # grouping below.
+    ordered = summary_rows.sort("year", descending=True, maintain_order=True)
     import pandas as pd
 
     frame = pd.DataFrame(ordered.to_dicts())
     frame.index = pd.RangeIndex(1, len(frame) + 1)
     frame.index.name = "#"
+
+    # A real trade (transaction_summary_rows' `group_id`) explodes into one
+    # row per party -- "who got what," not everyone's name on one combined
+    # row. plottable has no true merged/spanning cell, so the grouping is
+    # simulated: blank the repeated YEAR/TYPE on every row after a group's
+    # first, and alternate each *group's* row background (not each row's --
+    # `set_alternating_row_colors` only does that) so a 2+-row trade group
+    # reads as one visual block instead of independent striped rows.
+    group_ids = frame["group_id"].tolist()
+    is_group_start = [
+        i == 0 or group_ids[i] != group_ids[i - 1] for i in range(len(group_ids))
+    ]
+    group_index = [0] * len(group_ids)
+    current = -1
+    for i, start in enumerate(is_group_start):
+        current += start
+        group_index[i] = current
+
+    frame["year"] = frame["year"].astype(str)
+    for i, start in enumerate(is_group_start):
+        if not start:
+            frame.loc[frame.index[i], "year"] = ""
+            frame.loc[frame.index[i], "type"] = ""
 
     # A fixed width let a real "added X; dropped Y" summary (this league's
     # real longest: 51 characters, "added Jacory Croskey-Merritt; dropped
@@ -163,7 +190,7 @@ def render_on_this_day_table(
     ]
 
     fig, ax = plt.subplots(figsize=(fig_width, 0.6 * len(frame) + 2.2))
-    Table(
+    table = Table(
         frame[[c.name for c in column_definitions]],
         column_definitions=column_definitions,
         textprops={"fontsize": 10, "ha": "center"},
@@ -173,6 +200,9 @@ def render_on_this_day_table(
         column_border_kw={"linewidth": 1.5, "color": "black"},
         ax=ax,
     )
+    for row_idx, group_idx in enumerate(group_index):
+        if group_idx % 2 == 1:
+            table.rows[row_idx].set_facecolor("#F2F2F2")
 
     ax.set_title(title, loc="left", fontsize=17, weight="bold", pad=30)
 

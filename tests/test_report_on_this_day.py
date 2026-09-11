@@ -16,6 +16,7 @@ def _summary_rows() -> pl.DataFrame:
             "type": ["trade", "waiver"],
             "parties": ["Nolan, Mike", "Nolan"],
             "summary": ["added Player A; dropped Player B", "added Player C"],
+            "group_id": ["t1", "t2"],
         }
     )
 
@@ -60,6 +61,7 @@ def test_render_on_this_day_table_handles_long_summary_and_type_text(tmp_path):
             "type": ["free_agent"],
             "parties": ["nawfeastdallas"],
             "summary": ["added Jacory Croskey-Merritt; dropped Brandin Cooks Extended"],
+            "group_id": ["t1"],
         }
     )
 
@@ -67,3 +69,48 @@ def test_render_on_this_day_table_handles_long_summary_and_type_text(tmp_path):
 
     assert result.is_file()
     assert result.stat().st_size > 0
+
+
+def test_render_on_this_day_table_handles_a_long_trade_summary(tmp_path):
+    """Regression test: an unbounded width for a real multi-player,
+    multi-pick trade summary used to starve every other column's real
+    share of the same fixed axes width down to an overlapping sliver."""
+    out_path = tmp_path / "on_this_day.png"
+    rows = pl.DataFrame(
+        {
+            "year": [2026, 2026],
+            "type": ["trade", "trade"],
+            "parties": ["nolmacdonald", "jwhitney0220"],
+            "summary": [
+                "received Troy Franklin, Tyler Warren, J.K. Dobbins, Zach "
+                "Charbonnet; gave up 2 draft picks",
+                "received 2 draft picks; gave up Troy Franklin, Tyler "
+                "Warren, J.K. Dobbins, Zach Charbonnet",
+            ],
+            "group_id": ["t1", "t1"],
+        }
+    )
+
+    result = render_on_this_day_table(rows, date(2026, 4, 27), out_path)
+
+    assert result.is_file()
+    assert result.stat().st_size > 0
+
+
+def test_render_on_this_day_table_groups_a_multi_party_trade(tmp_path):
+    """A 3-way trade (3 rows sharing one group_id) doesn't crash the
+    grouping/blanking logic -- not just the common 2-party case."""
+    out_path = tmp_path / "on_this_day.png"
+    rows = pl.DataFrame(
+        {
+            "year": [2026, 2026, 2026],
+            "type": ["trade", "trade", "trade"],
+            "parties": ["A", "B", "C"],
+            "summary": ["received X", "received Y", "received Z"],
+            "group_id": ["t1", "t1", "t1"],
+        }
+    )
+
+    result = render_on_this_day_table(rows, date(2026, 4, 27), out_path)
+
+    assert result.is_file()

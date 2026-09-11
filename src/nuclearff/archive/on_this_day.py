@@ -15,7 +15,9 @@ issue's own stated non-goals — do not fold that in without a separate issue.
 :func:`transactions_on_this_day`'s raw rows into the display-ready shape
 ``nuclearff.report.on_this_day.render_on_this_day_table`` renders, including
 a real FAAB cost note on a waiver add when the league actually uses FAAB
-(``$<bid> ($<budget>)``, e.g. ``$7 ($100)``) via :func:`_faab_note`.
+(``$<bid> ($<budget>)``, e.g. ``$7 ($100)``) via :func:`_faab_note`, and a
+real trade split into one row per party (:func:`_trade_rows`) — "who got
+what," not every party's name comma-joined onto one combined-summary row.
 """
 
 from __future__ import annotations
@@ -98,6 +100,107 @@ def _move_summary(
     return "; ".join(parts) if parts else "—"
 
 
+def _pick_label(pick: dict[str, Any]) -> str:
+    """``"<season> round <round> pick"`` from a raw traded-pick object.
+
+    A pick's own ``roster_id`` (whose original draft slot it is) can differ
+    from both trading parties when a previously-acquired future pick gets
+    re-traded again — real for this project's own league history. Not
+    resolved to a manager name here: that needs a roster_id -> manager
+    lookup for the *whole* league, not just this transaction's own
+    ``roster_ids``, which is out of scope for this real-but-partial label
+    rather than guessing at an attribution this function can't verify.
+    """
+    return f"{pick.get('season')} round {pick.get('round')} pick"
+
+
+def _trade_party_summary(
+    received_players: list[str],
+    given_players: list[str],
+    received_picks: list[dict[str, Any]],
+    given_picks: list[dict[str, Any]],
+    player_names: dict[str, str],
+) -> str:
+    def names(player_ids: list[str]) -> str:
+        return ", ".join(player_names.get(pid, pid) for pid in player_ids)
+
+    def with_picks(items: list[str], picks: list[dict[str, Any]]) -> list[str]:
+        if picks:
+            items = [*items, ", ".join(_pick_label(p) for p in picks)]
+        return items
+
+    parts = []
+    received_names = [names(received_players)] if received_players else []
+    received = with_picks(received_names, received_picks)
+    if received:
+        parts.append(f"received {', '.join(received)}")
+    given = with_picks([names(given_players)] if given_players else [], given_picks)
+    if given:
+        parts.append(f"gave up {', '.join(given)}")
+    return "; ".join(parts) if parts else "—"
+
+
+def _trade_rows(
+    row: dict[str, Any], player_names: dict[str, str]
+) -> list[dict[str, Any]]:
+    """Explode one real trade transaction into one row per party.
+
+    A trade moves assets between two (or more, for a real N-way trade) real
+    rosters — collapsing it into a single row with every party's name
+    comma-joined loses "who got what," which is the actual answer a
+    "on this day" trade callback should give. Splitting it into one row per
+    ``roster_id`` in ``roster_ids`` answers that directly; the shared
+    ``group_id`` (the transaction id) lets
+    :func:`nuclearff.report.on_this_day.render_on_this_day_table` visually
+    group the resulting rows as one transaction.
+
+    Args:
+        row: A raw ``sleeper_transactions`` row (as a dict) with
+            ``type == "trade"``.
+        player_names: ``player_id`` -> real name, for resolving ``adds``/
+            ``drops``.
+
+    Returns:
+        One dict per party, each with ``year``, ``type``, ``parties`` (that
+        one party's manager name), ``summary`` (what they received/gave up),
+        and ``group_id`` (this transaction's id, shared across every row
+        this function returns).
+    """
+    roster_ids = json.loads(row.get("roster_ids") or "[]")
+    display_names = json.loads(row.get("roster_display_names") or "[]")
+    name_by_roster = dict(zip(roster_ids, display_names, strict=False))
+    adds = json.loads(row["adds"] or "{}")
+    drops = json.loads(row["drops"] or "{}")
+    draft_picks = json.loads(row["draft_picks"] or "[]")
+    created_at = row["created_at"]
+    year = created_at.year if created_at is not None else None
+
+    rows = []
+    for roster_id in roster_ids:
+        received_players = [pid for pid, rid in adds.items() if rid == roster_id]
+        given_players = [pid for pid, rid in drops.items() if rid == roster_id]
+        received_picks = [p for p in draft_picks if p.get("owner_id") == roster_id]
+        given_picks = [
+            p for p in draft_picks if p.get("previous_owner_id") == roster_id
+        ]
+        rows.append(
+            {
+                "year": year,
+                "type": row.get("type") or "—",
+                "parties": name_by_roster.get(roster_id) or "—",
+                "summary": _trade_party_summary(
+                    received_players,
+                    given_players,
+                    received_picks,
+                    given_picks,
+                    player_names,
+                ),
+                "group_id": row.get("transaction_id"),
+            }
+        )
+    return rows
+
+
 def transaction_summary_rows(
     matches: pl.DataFrame,
     players: pl.DataFrame | None = None,
@@ -124,11 +227,17 @@ def transaction_summary_rows(
             budget to show.
 
     Returns:
-        ``year``, ``type``, ``parties`` (comma-joined manager names, or
-        ``"—"`` if none resolved), ``summary`` (a human-readable
-        added/dropped/traded description, with a real ``$<bid> ($<budget>)``
-        note on a FAAB waiver add when applicable), same row order as
-        ``matches``.
+        ``year``, ``type``, ``parties`` (comma-joined manager names for a
+        non-trade row, or the single party's own name for a trade row —
+        see below — or ``"—"`` if none resolved), ``summary`` (a
+        human-readable description; for a waiver/free-agent row,
+        added/dropped, with a real ``$<bid> ($<budget>)`` note on a FAAB
+        add when applicable; for a trade row, what that one party
+        received/gave up), and ``group_id`` (the source transaction id —
+        a real trade explodes into one row per party sharing the same
+        ``group_id``, which
+        :func:`nuclearff.report.on_this_day.render_on_this_day_table` uses
+        to visually group those rows as one transaction).
     """
     if matches.height == 0:
         return pl.DataFrame(
@@ -137,6 +246,7 @@ def transaction_summary_rows(
                 "type": pl.Utf8,
                 "parties": pl.Utf8,
                 "summary": pl.Utf8,
+                "group_id": pl.Utf8,
             }
         )
 
@@ -151,6 +261,9 @@ def transaction_summary_rows(
 
     rows = []
     for row in matches.to_dicts():
+        if row.get("type") == "trade":
+            rows.extend(_trade_rows(row, player_names))
+            continue
         created_at = row["created_at"]
         waiver_budget = waiver_budgets.get(row.get("league_id"))
         rows.append(
@@ -159,6 +272,7 @@ def transaction_summary_rows(
                 "type": row.get("type") or "—",
                 "parties": _parties(row),
                 "summary": _move_summary(row, player_names, waiver_budget),
+                "group_id": row.get("transaction_id"),
             }
         )
     return pl.DataFrame(rows)
