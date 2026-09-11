@@ -100,8 +100,17 @@ def _move_summary(
     return "; ".join(parts) if parts else "—"
 
 
+def _ordinal(n: int) -> str:
+    """``1 -> "1st"``, ``2 -> "2nd"``, ``3 -> "3rd"``, ``4 -> "4th"``, ..."""
+    if 10 <= n % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def _pick_label(pick: dict[str, Any]) -> str:
-    """``"<season> round <round> pick"`` from a raw traded-pick object.
+    """``"'<yy> <round>"`` (e.g. ``"'26 1st"``) from a raw traded-pick object.
 
     A pick's own ``roster_id`` (whose original draft slot it is) can differ
     from both trading parties when a previously-acquired future pick gets
@@ -111,7 +120,11 @@ def _pick_label(pick: dict[str, Any]) -> str:
     ``roster_ids``, which is out of scope for this real-but-partial label
     rather than guessing at an attribution this function can't verify.
     """
-    return f"{pick.get('season')} round {pick.get('round')} pick"
+    season = str(pick.get("season") or "")
+    year_suffix = season[-2:] if season else "??"
+    round_no = pick.get("round")
+    round_label = _ordinal(round_no) if isinstance(round_no, int) else str(round_no)
+    return f"'{year_suffix} {round_label}"
 
 
 def _trade_party_summary(

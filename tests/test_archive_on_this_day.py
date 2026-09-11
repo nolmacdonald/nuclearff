@@ -8,6 +8,8 @@ from datetime import date, datetime
 import polars as pl
 
 from nuclearff.archive.on_this_day import (
+    _ordinal,
+    _pick_label,
     transaction_summary_rows,
     transactions_on_this_day,
 )
@@ -176,8 +178,8 @@ def test_transaction_summary_rows_splits_a_trade_into_one_row_per_party():
 
     assert len(trade_rows) == 2
     by_party = {r["parties"]: r["summary"] for r in trade_rows}
-    assert by_party["Mike"] == "received Player Nine, 2025 round 1 pick"
-    assert by_party["Nolan"] == "gave up Player Nine, 2025 round 1 pick"
+    assert by_party["Mike"] == "received Player Nine, '25 1st"
+    assert by_party["Nolan"] == "gave up Player Nine, '25 1st"
 
 
 def test_transaction_summary_rows_shares_group_id_across_trade_parties():
@@ -211,3 +213,19 @@ def test_transaction_summary_rows_handles_a_pickless_all_player_trade():
 
     by_party = {r["parties"]: r["summary"] for r in result.to_dicts()}
     assert by_party == {"Mike": "received Player One", "Nolan": "gave up Player One"}
+
+
+def test_ordinal_covers_teen_exception_and_normal_suffixes():
+    assert _ordinal(1) == "1st"
+    assert _ordinal(2) == "2nd"
+    assert _ordinal(3) == "3rd"
+    assert _ordinal(4) == "4th"
+    assert _ordinal(11) == "11th"
+    assert _ordinal(12) == "12th"
+    assert _ordinal(13) == "13th"
+    assert _ordinal(21) == "21st"
+
+
+def test_pick_label_formats_as_apostrophe_year_and_ordinal_round():
+    assert _pick_label({"season": "2026", "round": 1}) == "'26 1st"
+    assert _pick_label({"season": "2028", "round": 3}) == "'28 3rd"
