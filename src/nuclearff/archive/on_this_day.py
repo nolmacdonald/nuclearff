@@ -97,7 +97,10 @@ def _move_summary(
     if draft_picks:
         noun = "pick" if len(draft_picks) == 1 else "picks"
         parts.append(f"{len(draft_picks)} draft {noun}")
-    return "; ".join(parts) if parts else "—"
+    # One line per part (added / dropped / picks), not joined onto a single
+    # line -- the renderer sizes every row for this many lines, so a real
+    # add-and-drop-in-one-transaction move never needs its text truncated.
+    return "\n".join(parts) if parts else "—"
 
 
 def _ordinal(n: int) -> str:
@@ -150,7 +153,9 @@ def _trade_party_summary(
     given = with_picks([names(given_players)] if given_players else [], given_picks)
     if given:
         parts.append(f"gave up {', '.join(given)}")
-    return "; ".join(parts) if parts else "—"
+    # One line per part (received / gave up), same reasoning as
+    # `_move_summary` -- avoids truncating either side's text.
+    return "\n".join(parts) if parts else "—"
 
 
 def _trade_rows(

@@ -125,29 +125,37 @@ def render_on_this_day_table(
             frame.loc[frame.index[i], "year"] = ""
             frame.loc[frame.index[i], "type"] = ""
 
-    # A fixed width let a real "added X; dropped Y" summary (this league's
-    # real longest: 51 characters, "added Jacory Croskey-Merritt; dropped
-    # Brandin Cooks") or a real "free_agent" type (10 chars, vs. "waiver"/
-    # "trade") wrap to a second line that plottable's row layout doesn't
-    # reserve height for, visually overlapping the row below -- the same
-    # "don't hardcode a width real data can exceed" lesson
-    # `report/user_leagues.py` already learned for its own LEAGUE column.
-    # Sized to the longest string actually present, not a guessed default.
-    #
-    # A real multi-player, multi-pick trade summary can run past 150
-    # characters ("added W, X, Y, Z; dropped A, B, C, D; 5 draft picks") --
-    # letting the width formula grow unbounded for that starves every other
-    # column instead: plottable's `width` is a *relative weight* across the
-    # row, not an absolute inch value, so one runaway column shrinks every
-    # other column's real share of the same fixed axes width. Truncate the
-    # two free-text columns to a sane display budget instead of chasing an
-    # ever-larger width for an ever-longer outlier string.
-    frame["summary"] = frame["summary"].map(lambda s: _truncate(str(s), 70))
+    # `transaction_summary_rows` joins a multi-part SUMMARY ("added ..." /
+    # "dropped ..." / "received ..." / "gave up ...") with real newlines
+    # instead of "; " -- one line per part, so nothing needs truncating.
+    # plottable gives every row the *same* height regardless of content
+    # (confirmed live: a wrapped cell doesn't push its own row taller, it
+    # just overlaps the row below), so that height has to be sized for the
+    # tallest cell in the whole table, not per-row -- a single-part day
+    # (only waiver adds, no drops) stays compact; a day with an add-and-
+    # drop or a multi-asset trade uniformly gets taller rows.
+    max_summary_lines = max(
+        (str(v).count("\n") + 1 for v in frame["summary"]), default=1
+    )
+    row_height_unit = 0.6 + 0.35 * (max_summary_lines - 1)
+
+    # A fixed width let a real "free_agent" type (10 chars, vs. "waiver"/
+    # "trade") wrap to a second line without reserving height for it,
+    # visually overlapping the row below -- the same "don't hardcode a
+    # width real data can exceed" lesson `report/user_leagues.py` already
+    # learned for its own LEAGUE column. Sized to the longest string
+    # actually present, not a guessed default. `parties` is truncated
+    # (a single manager name, always short in practice) as a safety net;
+    # `summary` is not -- its real width need is driven by the longest
+    # *line* (see above), not truncated text.
     frame["parties"] = frame["parties"].map(lambda s: _truncate(str(s), 40))
 
     max_type_len = max((len(str(v)) for v in frame["type"]), default=6)
     max_parties_len = max((len(str(v)) for v in frame["parties"]), default=10)
-    max_summary_len = max((len(str(v)) for v in frame["summary"]), default=10)
+    max_summary_len = max(
+        (len(line) for v in frame["summary"] for line in str(v).split("\n")),
+        default=10,
+    )
     type_width = max(1.2, 0.16 * max_type_len)
     parties_width = max(2.2, 0.16 * max_parties_len)
     summary_width = max(4.5, 0.16 * max_summary_len)
@@ -189,7 +197,7 @@ def render_on_this_day_table(
         ),
     ]
 
-    fig, ax = plt.subplots(figsize=(fig_width, 0.6 * len(frame) + 2.2))
+    fig, ax = plt.subplots(figsize=(fig_width, row_height_unit * len(frame) + 2.2))
     table = Table(
         frame[[c.name for c in column_definitions]],
         column_definitions=column_definitions,
