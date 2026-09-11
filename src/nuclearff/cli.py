@@ -10,6 +10,7 @@ testable.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from collections.abc import Sequence
@@ -1249,6 +1250,34 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _waiver_budgets_by_league(
+    leagues: pl.DataFrame, league_ids: list[str]
+) -> dict[str, int]:
+    """``league_id`` -> that season's real FAAB budget, from raw ``settings``.
+
+    A ``league_id`` whose ``settings`` has no real ``waiver_budget`` (a
+    priority-waiver league, not FAAB) is simply absent from the returned
+    mapping -- :func:`nuclearff.archive.on_this_day.transaction_summary_rows`
+    treats that as "no FAAB note," not zero.
+
+    Args:
+        leagues: ``sleeper_leagues`` rows (``league_id``, ``settings``).
+        league_ids: Restrict to these seasons.
+
+    Returns:
+        ``league_id`` -> ``waiver_budget`` for every season where the raw
+        ``settings`` JSON has a truthy one.
+    """
+    budgets: dict[str, int] = {}
+    rows = leagues.filter(pl.col("league_id").is_in(league_ids)).to_dicts()
+    for row in rows:
+        settings = json.loads(row.get("settings") or "{}")
+        budget = settings.get("waiver_budget")
+        if budget:
+            budgets[row["league_id"]] = budget
+    return budgets
+
+
 def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
     """Render transactions that happened on a real calendar date.
 
@@ -1258,7 +1287,9 @@ def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
     exists -- falls back to just ``league_id``'s own season, with a warning,
     otherwise. Player names in the rendered summary resolve from
     ``sleeper_players`` (``sleeper fetch-players``) if present, else fall
-    back to the raw Sleeper player id.
+    back to the raw Sleeper player id. A waiver add gets a real
+    ``$<bid> ($<budget>)`` note when that season's league actually used FAAB
+    (``sleeper_leagues.settings.waiver_budget``), nothing otherwise.
 
     Args:
         args: Parsed arguments carrying ``league_id``, ``date`` (ISO
@@ -1289,10 +1320,12 @@ def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
         )
         return EXIT_ERROR
 
+    waiver_budgets: dict[str, int] = {}
     try:
         leagues = read_table(db_path, "sleeper_leagues")
         chain_ids = league_chain_ids(leagues, args.league_id)
         transactions = transactions.filter(pl.col("league_id").is_in(chain_ids))
+        waiver_budgets = _waiver_budgets_by_league(leagues, chain_ids)
     except StorageError:
         transactions = transactions.filter(pl.col("league_id") == args.league_id)
         print(
@@ -1311,7 +1344,7 @@ def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
     except StorageError:
         pass
 
-    summary = transaction_summary_rows(matches, players)
+    summary = transaction_summary_rows(matches, players, waiver_budgets)
 
     out_path = (
         Path(args.out)

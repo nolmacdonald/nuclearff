@@ -19,6 +19,11 @@ from nuclearff.report.tables import RenderingUnavailableError
 logger = logging.getLogger(__name__)
 
 
+def _truncate(text: str, limit: int) -> str:
+    """``text`` clipped to ``limit`` characters with a trailing ``…``."""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def render_on_this_day_table(
     summary_rows: pl.DataFrame,
     today: date,
@@ -101,12 +106,33 @@ def render_on_this_day_table(
     # "don't hardcode a width real data can exceed" lesson
     # `report/user_leagues.py` already learned for its own LEAGUE column.
     # Sized to the longest string actually present, not a guessed default.
+    #
+    # A real multi-player, multi-pick trade summary can run past 150
+    # characters ("added W, X, Y, Z; dropped A, B, C, D; 5 draft picks") --
+    # letting the width formula grow unbounded for that starves every other
+    # column instead: plottable's `width` is a *relative weight* across the
+    # row, not an absolute inch value, so one runaway column shrinks every
+    # other column's real share of the same fixed axes width. Truncate the
+    # two free-text columns to a sane display budget instead of chasing an
+    # ever-larger width for an ever-longer outlier string.
+    frame["summary"] = frame["summary"].map(lambda s: _truncate(str(s), 70))
+    frame["parties"] = frame["parties"].map(lambda s: _truncate(str(s), 40))
+
     max_type_len = max((len(str(v)) for v in frame["type"]), default=6)
     max_parties_len = max((len(str(v)) for v in frame["parties"]), default=10)
     max_summary_len = max((len(str(v)) for v in frame["summary"]), default=10)
     type_width = max(1.2, 0.16 * max_type_len)
     parties_width = max(2.2, 0.16 * max_parties_len)
     summary_width = max(4.5, 0.16 * max_summary_len)
+
+    # Also scale the *figure* width to the real total column weight (default
+    # columns sum to 8.7 units across a 14" figure, ~1.61"/unit) rather than
+    # holding it fixed at 14" -- otherwise a real table with wider-than-
+    # default columns keeps the same physical width and every column's
+    # absolute inches shrinks even after truncation above bounds the
+    # relative weights.
+    total_width = 0.8 + type_width + parties_width + summary_width
+    fig_width = max(14.0, total_width * (14.0 / 8.7))
 
     column_definitions = [
         ColumnDefinition(
@@ -136,7 +162,7 @@ def render_on_this_day_table(
         ),
     ]
 
-    fig, ax = plt.subplots(figsize=(14, 0.6 * len(frame) + 2.2))
+    fig, ax = plt.subplots(figsize=(fig_width, 0.6 * len(frame) + 2.2))
     Table(
         frame[[c.name for c in column_definitions]],
         column_definitions=column_definitions,

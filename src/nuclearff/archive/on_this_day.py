@@ -13,7 +13,9 @@ issue's own stated non-goals — do not fold that in without a separate issue.
 
 :func:`transaction_summary_rows` (issue #118) turns
 :func:`transactions_on_this_day`'s raw rows into the display-ready shape
-``nuclearff.report.on_this_day.render_on_this_day_table`` renders.
+``nuclearff.report.on_this_day.render_on_this_day_table`` renders, including
+a real FAAB cost note on a waiver add when the league actually uses FAAB
+(``$<bid> ($<budget>)``, e.g. ``$7 ($100)``) via :func:`_faab_note`.
 """
 
 from __future__ import annotations
@@ -54,7 +56,30 @@ def _parties(row: dict[str, Any]) -> str:
     return ", ".join(names) if names else "—"
 
 
-def _move_summary(row: dict[str, Any], player_names: dict[str, str]) -> str:
+def _faab_note(row: dict[str, Any], waiver_budget: int | None) -> str:
+    """``" $<bid> ($<budget>)"`` for a real FAAB waiver claim, else ``""``.
+
+    Only ``type == "waiver"`` transactions carry a ``waiver_bid`` at all
+    (Sleeper has no bid concept for a free-agent pickup or a trade), and a
+    league with no real FAAB budget set (``waiver_budget`` falsy — a
+    priority-waiver league, e.g. ``waiver_type`` other than FAAB) has no
+    budget to show a bid "out of" — "if applicable depending on league," not
+    unconditional. A real ``$0`` bid in a real FAAB league is still shown:
+    it means the manager spent nothing, which is a real fact, not a missing
+    one.
+    """
+    if row.get("type") != "waiver" or not waiver_budget:
+        return ""
+    settings = json.loads(row.get("settings") or "{}")
+    bid = settings.get("waiver_bid")
+    if bid is None:
+        return ""
+    return f" ${bid} (${waiver_budget})"
+
+
+def _move_summary(
+    row: dict[str, Any], player_names: dict[str, str], waiver_budget: int | None
+) -> str:
     adds = json.loads(row["adds"] or "{}")
     drops = json.loads(row["drops"] or "{}")
     draft_picks = json.loads(row["draft_picks"] or "[]")
@@ -64,7 +89,7 @@ def _move_summary(row: dict[str, Any], player_names: dict[str, str]) -> str:
 
     parts = []
     if adds:
-        parts.append(f"added {names(adds)}")
+        parts.append(f"added {names(adds)}{_faab_note(row, waiver_budget)}")
     if drops:
         parts.append(f"dropped {names(drops)}")
     if draft_picks:
@@ -74,7 +99,9 @@ def _move_summary(row: dict[str, Any], player_names: dict[str, str]) -> str:
 
 
 def transaction_summary_rows(
-    matches: pl.DataFrame, players: pl.DataFrame | None = None
+    matches: pl.DataFrame,
+    players: pl.DataFrame | None = None,
+    waiver_budgets: dict[str, int] | None = None,
 ) -> pl.DataFrame:
     """Turn :func:`transactions_on_this_day`'s output into display-ready rows.
 
@@ -87,11 +114,21 @@ def transaction_summary_rows(
             matches this project's existing "missing lookup degrades, does
             not crash" posture (e.g. ``report/user_leagues.py``'s ``"FA"``
             fallback).
+        waiver_budgets: ``league_id`` -> that season's real total FAAB
+            budget, from the raw league object's ``settings.waiver_budget``
+            (``sleeper_leagues.settings``, not currently modeled on
+            :class:`~nuclearff.config.league.LeagueConfig`). A ``league_id``
+            absent from this mapping (or ``waiver_budgets`` omitted
+            entirely) renders a waiver add with no FAAB note at all, the
+            correct behavior for a priority-waiver league with no real
+            budget to show.
 
     Returns:
         ``year``, ``type``, ``parties`` (comma-joined manager names, or
         ``"—"`` if none resolved), ``summary`` (a human-readable
-        added/dropped/traded description), same row order as ``matches``.
+        added/dropped/traded description, with a real ``$<bid> ($<budget>)``
+        note on a FAAB waiver add when applicable), same row order as
+        ``matches``.
     """
     if matches.height == 0:
         return pl.DataFrame(
@@ -110,16 +147,18 @@ def transaction_summary_rows(
             for row in players.select("player_id", "full_name").to_dicts()
             if row["full_name"]
         }
+    waiver_budgets = waiver_budgets or {}
 
     rows = []
     for row in matches.to_dicts():
         created_at = row["created_at"]
+        waiver_budget = waiver_budgets.get(row.get("league_id"))
         rows.append(
             {
                 "year": created_at.year if created_at is not None else None,
                 "type": row.get("type") or "—",
                 "parties": _parties(row),
-                "summary": _move_summary(row, player_names),
+                "summary": _move_summary(row, player_names, waiver_budget),
             }
         )
     return pl.DataFrame(rows)

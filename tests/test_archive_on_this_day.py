@@ -17,6 +17,7 @@ def _transactions() -> pl.DataFrame:
     return pl.DataFrame(
         {
             "transaction_id": ["t1", "t2", "t3", "t4"],
+            "league_id": ["l1", "l1", "l2", "l1"],
             "type": ["trade", "trade", "waiver", "trade"],
             "created_at": [
                 datetime(2021, 9, 10, 12, 0, 0),
@@ -47,6 +48,12 @@ def _transactions() -> pl.DataFrame:
                 json.dumps([]),
                 json.dumps([]),
                 json.dumps([]),
+            ],
+            "settings": [
+                json.dumps({}),
+                json.dumps({}),
+                json.dumps({"waiver_bid": 7}),
+                json.dumps({}),
             ],
         }
     )
@@ -116,3 +123,32 @@ def test_transaction_summary_rows_handles_empty_matches():
     result = transaction_summary_rows(empty, _players())
 
     assert result.height == 0
+
+
+def test_transaction_summary_rows_adds_faab_note_for_faab_league():
+    matches = transactions_on_this_day(_transactions(), date(2026, 9, 11))
+
+    result = transaction_summary_rows(matches, waiver_budgets={"l2": 100})
+
+    row = result.to_dicts()[0]
+    assert row["summary"] == "added p2 $7 ($100)"
+
+
+def test_transaction_summary_rows_omits_faab_note_without_a_budget():
+    """A priority-waiver league (no real waiver_budget) gets no note at all."""
+    matches = transactions_on_this_day(_transactions(), date(2026, 9, 11))
+
+    result = transaction_summary_rows(matches, waiver_budgets=None)
+
+    row = result.to_dicts()[0]
+    assert row["summary"] == "added p2"
+
+
+def test_transaction_summary_rows_omits_faab_note_for_non_waiver_types():
+    """A trade or free-agent add never gets a FAAB note, even in a FAAB league."""
+    matches = transactions_on_this_day(_transactions(), date(2026, 9, 10))
+
+    result = transaction_summary_rows(matches, waiver_budgets={"l1": 100})
+
+    t2 = result.filter(pl.col("year") == 2023).to_dicts()[0]
+    assert "$" not in t2["summary"]
