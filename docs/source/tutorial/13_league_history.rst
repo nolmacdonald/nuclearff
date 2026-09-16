@@ -52,6 +52,55 @@ that season's user list (the same real Sleeper data quirk
 because the season is still in progress — ``championship_history`` doesn't
 guess at an unfinished season.
 
+Season awards
+------------------
+
+:func:`~nuclearff.archive.awards.season_awards` surfaces three
+superlatives, each honestly derivable from ``sleeper_standings`` alone —
+no subjective judgment call invented for something this project has no
+data to back (a "best trade" or "most exciting week" award would need a
+real, stated scoring rule from you, not a guessed heuristic):
+
+.. code-block:: python
+
+   from nuclearff.archive.awards import season_awards
+
+   awards = season_awards(standings)
+   print(awards)
+
+.. code-block:: text
+
+   shape: (3, 4)
+   ┌──────────────────────┬────────┬────────────┬─────────┐
+   │ kind                 ┆ season ┆ manager    ┆ value   │
+   ╞══════════════════════╪════════╪════════════╪═════════╡
+   │ best_regular_season   ┆ 2025   ┆ casitzmann ┆ 2055.82 │
+   │ cinderella_run        ┆ 2024   ┆ aperry151  ┆ 4.0     │
+   │ biggest_improvement   ┆ 2023   ┆ hyoga10    ┆ 402.06  │
+   └──────────────────────┴────────┴────────────┴─────────┘
+
+Three real, spot-checkable results from this league's actual history:
+
+- **Best regular season** — ``casitzmann``'s real 2025 (the same 20-8
+  season from :doc:`04_capturing_a_league`) is the most dominant #1 seed
+  in this league's history by total points, among every season's own
+  regular-season leader.
+- **Cinderella run** — ``aperry151`` won the 2024 championship despite a
+  real regular-season rank of 5th (``value`` is the rank gap: 5 - 1 = 4).
+  Since a champion's ``final_rank`` is always 1 by definition, this needs
+  no playoff-week boundary at all — unlike :doc:`14_trade_network`'s
+  rivalries split, "did this team overcome a bad regular season" is
+  already answered by ``regular_season_rank`` vs. ``final_rank`` alone.
+- **Biggest year-over-year improvement** — ``hyoga10`` gained 402.06 real
+  fantasy points from 2022 to 2023, the largest single-manager jump in
+  this league's history. Only counted between **consecutive** seasons for
+  the same manager — a gap season (absent one year, back the next) is not
+  treated as "improvement."
+
+An award with no eligible season (e.g. no season has a resolved
+``final_rank`` yet) is simply absent from the result rather than a row of
+nulls.
+
 Records: extremes and streaks
 ------------------------------------
 
