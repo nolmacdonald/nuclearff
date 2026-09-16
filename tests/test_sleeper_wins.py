@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import polars as pl
+import pytest
 
-from nuclearff.sleeper.wins import cumulative_wins, weekly_results
+from nuclearff.sleeper.wins import (
+    cumulative_wins,
+    paired_weekly_matchups,
+    weekly_results,
+)
 
 
 def _matchups(rows: list[dict]) -> pl.DataFrame:
@@ -22,6 +27,94 @@ def _matchups(rows: list[dict]) -> pl.DataFrame:
 def _standings(rows: list[dict]) -> pl.DataFrame:
     schema = {"league_id": pl.String, "roster_id": pl.Int64, "display_name": pl.String}
     return pl.DataFrame(rows, schema=schema)
+
+
+# --- paired_weekly_matchups --------------------------------------------------
+
+
+def test_paired_weekly_matchups_keeps_points_and_margin():
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": 4,
+                "points": 123.62,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 2,
+                "matchup_id": 4,
+                "points": 110.0,
+            },
+        ]
+    )
+
+    paired = {
+        row["roster_id"]: row
+        for row in paired_weekly_matchups(matchups).iter_rows(named=True)
+    }
+
+    assert paired[1]["opponent_roster_id"] == 2
+    assert paired[1]["opponent_points"] == 110.0
+    assert paired[1]["margin"] == pytest.approx(13.62)
+    assert paired[2]["margin"] == pytest.approx(-13.62)
+
+
+def test_paired_weekly_matchups_skips_a_bye_week():
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": None,
+                "points": 123.62,
+            },
+        ]
+    )
+
+    assert paired_weekly_matchups(matchups).height == 0
+
+
+def test_paired_weekly_matchups_handles_no_matchups():
+    assert paired_weekly_matchups(_matchups([])).height == 0
+
+
+def test_weekly_results_is_derived_from_the_same_pairing_as_margins():
+    """weekly_results' win/loss/tie must agree with paired_weekly_matchups'
+    margin sign."""
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": 4,
+                "points": 100.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 2,
+                "matchup_id": 4,
+                "points": 100.0,
+            },
+        ]
+    )
+
+    margin = paired_weekly_matchups(matchups)["margin"].to_list()
+    result = weekly_results(matchups)["result"].to_list()
+
+    assert margin == [0.0, 0.0]
+    assert result == ["tie", "tie"]
 
 
 # --- weekly_results ---------------------------------------------------------

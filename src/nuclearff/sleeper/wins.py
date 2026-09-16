@@ -15,6 +15,12 @@ lone roster, or a ``null`` ``matchup_id`` -- both real per
 :mod:`nuclearff.sleeper.matchups`'s own module docstring) or any group that
 isn't exactly two rosters is skipped, not guessed at.
 
+:func:`paired_weekly_matchups` does the same pairing but keeps the raw
+points/margin instead of collapsing straight to win/loss/tie -- the
+league-history archive epic (#116) needs that richer shape for score/margin
+records (#109) and head-to-head rivalries (#110), so :func:`weekly_results`
+is now built on top of it rather than duplicating the join.
+
 Manager identity is ``sleeper_standings.display_name``, joined by
 ``(league_id, roster_id)`` -- the same "display name is the cross-season
 identity, not a stable id" posture :mod:`nuclearff.sleeper.trades` already
@@ -30,6 +36,17 @@ half-win convention Sleeper itself doesn't use.
 from __future__ import annotations
 
 import polars as pl
+
+_PAIRED_SCHEMA = {
+    "league_id": pl.String,
+    "season": pl.Int64,
+    "week": pl.Int64,
+    "roster_id": pl.Int64,
+    "points": pl.Float64,
+    "opponent_roster_id": pl.Int64,
+    "opponent_points": pl.Float64,
+    "margin": pl.Float64,
+}
 
 _RESULTS_SCHEMA = {
     "league_id": pl.String,
@@ -48,24 +65,29 @@ _CUMULATIVE_SCHEMA = {
 }
 
 
-def weekly_results(matchups: pl.DataFrame) -> pl.DataFrame:
-    """Derive each roster's per-week win/loss/tie from raw matchup points.
+def paired_weekly_matchups(matchups: pl.DataFrame) -> pl.DataFrame:
+    """Join each roster's weekly points against its real opponent's.
+
+    The shared pairing step behind :func:`weekly_results` and every
+    league-history archive feature that needs more than win/loss/tie out of
+    a matchup (#109's score/margin records, #110's head-to-head rivalries)
+    — factored out so none of them re-derive this join independently.
 
     Args:
-        matchups: ``sleeper_matchups`` rows, e.g.
-            :func:`nuclearff.duckdb_io.read_table`'s output for that table --
-            ``league_id``, ``season``, ``week``, ``roster_id``,
-            ``matchup_id``, ``points``.
+        matchups: ``sleeper_matchups`` rows -- ``league_id``, ``season``,
+            ``week``, ``roster_id``, ``matchup_id``, ``points``.
 
     Returns:
         One row per (roster, week) that had a real two-roster matchup:
-        ``league_id``, ``season``, ``week``, ``roster_id``, ``result``
-        (``"win"``, ``"loss"``, or ``"tie"``). A bye week, or any
-        ``(league_id, week, matchup_id)`` group that isn't exactly two
-        rosters, contributes no rows.
+        ``league_id``, ``season``, ``week``, ``roster_id``, ``points``,
+        ``opponent_roster_id``, ``opponent_points``, ``margin`` (``points -
+        opponent_points`` -- positive is a win, negative a loss, zero a
+        tie). A bye week, or any ``(league_id, week, matchup_id)`` group
+        that isn't exactly two rosters, contributes no rows -- same
+        exclusion :func:`weekly_results` has always applied.
     """
     if matchups.height == 0:
-        return pl.DataFrame(schema=_RESULTS_SCHEMA)
+        return pl.DataFrame(schema=_PAIRED_SCHEMA)
 
     group_keys = ["league_id", "week", "matchup_id"]
     paired_keys = (
@@ -91,9 +113,41 @@ def weekly_results(matchups: pl.DataFrame) -> pl.DataFrame:
         "season",
         "week",
         "roster_id",
-        result=pl.when(pl.col("points") > pl.col("opponent_points"))
+        "points",
+        "opponent_roster_id",
+        "opponent_points",
+        (pl.col("points") - pl.col("opponent_points")).alias("margin"),
+    )
+
+
+def weekly_results(matchups: pl.DataFrame) -> pl.DataFrame:
+    """Derive each roster's per-week win/loss/tie from raw matchup points.
+
+    Args:
+        matchups: ``sleeper_matchups`` rows, e.g.
+            :func:`nuclearff.duckdb_io.read_table`'s output for that table --
+            ``league_id``, ``season``, ``week``, ``roster_id``,
+            ``matchup_id``, ``points``.
+
+    Returns:
+        One row per (roster, week) that had a real two-roster matchup:
+        ``league_id``, ``season``, ``week``, ``roster_id``, ``result``
+        (``"win"``, ``"loss"``, or ``"tie"``). A bye week, or any
+        ``(league_id, week, matchup_id)`` group that isn't exactly two
+        rosters, contributes no rows.
+    """
+    paired = paired_weekly_matchups(matchups)
+    if paired.height == 0:
+        return pl.DataFrame(schema=_RESULTS_SCHEMA)
+
+    return paired.select(
+        "league_id",
+        "season",
+        "week",
+        "roster_id",
+        result=pl.when(pl.col("margin") > 0)
         .then(pl.lit("win"))
-        .when(pl.col("points") < pl.col("opponent_points"))
+        .when(pl.col("margin") < 0)
         .then(pl.lit("loss"))
         .otherwise(pl.lit("tie")),
     )
