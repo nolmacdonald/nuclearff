@@ -1,10 +1,31 @@
-"""FAAB waiver spend analytics (issue #132). Standalone — not part of either
-open epic, though it reads data both rely on.
+"""FAAB waiver spend analytics (issues #132, #133). Standalone — not part of
+either open epic, though it reads data both rely on.
 
-Turns ``sleeper_transactions`` (issue #20) into average FAAB spend per
-position for each season's real first waiver-wire week. No new Sleeper
-fetching — ``settings.waiver_bid`` and ``adds`` are already persisted per
-transaction.
+Turns ``sleeper_transactions`` (issue #20) into two views: average FAAB
+spend per position for each season's real first waiver-wire week
+(:func:`first_waiver_week_spend_by_position`, #132), and total FAAB spend
+per manager, per season and career-wide, against how many players they
+actually acquired (:func:`manager_waiver_spend`/:func:`career_waiver_spend`,
+#133). No new Sleeper fetching — ``settings.waiver_bid`` and ``adds`` are
+already persisted per transaction.
+
+**Real data limitation (#133): a losing claim's dollar amount may not be
+real.** This project's one real captured failed-waiver-claim example
+(``tests/test_sleeper_transactions.py::WAIVER_FAILED``) has
+``settings.waiver_bid == 0``, while the real captured successful claim in
+the same file has ``waiver_bid == 16`` — a single sample, not proof, but it
+points at Sleeper not preserving the actual bid on a claim a manager lost.
+:func:`manager_waiver_spend` builds ``total_spent`` from winning
+(``status == "complete"``) claims only, and surfaces ``failed_claims`` as a
+count-only "attempts" signal with no claimed dollar figure attached.
+
+**Multi-add claims are excluded everywhere in this module, not guessed
+at.** Sleeper's ``adds`` field is a dict, so a single waiver transaction
+with one ``waiver_bid`` could in principle add more than one player.
+Splitting the bid or attributing it to only one player would misrepresent
+a real dollar figure either way — a claim adding anything other than
+exactly one player contributes no row, in both #132's and #133's
+functions, for consistency.
 
 **"First waiver week" is ``MIN(week)``, not the earliest ``created_at``.**
 Sleeper processes waivers in a weekly batch, not continuously, so ``week``
@@ -24,12 +45,6 @@ week, or the player is outside ``DEFAULT_POSITIONS`` (projections are only
 fetched for QB/RB/WR/TE by default, so a K/DEF/DL waiver add always falls
 back). ``fallback_claims`` in the output surfaces how many of each row's
 ``num_claims`` used the fallback, rather than silently trusting it.
-
-**Multi-add claims are excluded, not guessed at.** Sleeper's ``adds`` field
-is a dict, so a single waiver transaction with one ``waiver_bid`` could in
-principle add more than one player. Splitting the bid or attributing it to
-only one player would misrepresent a real dollar figure either way — a
-claim adding anything other than exactly one player contributes no row.
 """
 
 from __future__ import annotations
@@ -47,6 +62,24 @@ _SCHEMA = {
     "max_bid": pl.Int64,
     "num_claims": pl.UInt32,
     "fallback_claims": pl.UInt32,
+}
+
+_MANAGER_SEASON_SCHEMA = {
+    "league_id": pl.String,
+    "season": pl.Int64,
+    "manager": pl.String,
+    "total_spent": pl.Int64,
+    "players_acquired": pl.UInt32,
+    "failed_claims": pl.UInt32,
+    "avg_cost_per_player": pl.Float64,
+}
+
+_CAREER_SCHEMA = {
+    "manager": pl.String,
+    "total_spent": pl.Int64,
+    "players_acquired": pl.UInt32,
+    "failed_claims": pl.UInt32,
+    "avg_cost_per_player": pl.Float64,
 }
 
 
@@ -139,4 +172,126 @@ def first_waiver_week_spend_by_position(
             pl.col("used_fallback").sum().cast(pl.UInt32).alias("fallback_claims"),
         )
         .sort(["season", "league_id", "position"])
+    )
+
+
+def _with_avg_cost(frame: pl.DataFrame) -> pl.DataFrame:
+    return frame.with_columns(
+        avg_cost_per_player=pl.when(pl.col("players_acquired") > 0)
+        .then(pl.col("total_spent") / pl.col("players_acquired"))
+        .otherwise(None)
+    )
+
+
+def manager_waiver_spend(transactions: pl.DataFrame) -> pl.DataFrame:
+    """Per-manager, per-season FAAB spend against players actually acquired.
+
+    Args:
+        transactions: ``sleeper_transactions`` rows — needs ``league_id``,
+            ``season``, ``type``, ``status``, ``settings`` (JSON), ``adds``
+            (JSON), ``roster_display_names`` (JSON).
+
+    Returns:
+        One row per ``(league_id, season, manager)`` with at least one
+        waiver claim: ``total_spent`` (sum of ``waiver_bid`` over
+        ``status == "complete"`` single-add claims only — see the module
+        docstring on why a losing claim's amount isn't trusted),
+        ``players_acquired`` (count of those same claims),
+        ``failed_claims`` (count of ``status == "failed"`` claims — a real
+        "attempts" signal, no dollar figure attached), ``avg_cost_per_player``
+        (``None``, not a divide-by-zero, when ``players_acquired == 0``).
+        A manager with only failed claims still gets a row:
+        ``total_spent == 0``, ``failed_claims > 0``, not an absent row. A
+        priority-waiver season (no real ``waiver_bid``) or a multi-add claim
+        contributes nothing to any column, same exclusions as
+        :func:`first_waiver_week_spend_by_position`.
+    """
+    waivers = transactions.filter(pl.col("type") == "waiver")
+    if waivers.height == 0:
+        return pl.DataFrame(schema=_MANAGER_SEASON_SCHEMA)
+
+    rows: list[dict[str, object]] = []
+    for row in waivers.iter_rows(named=True):
+        names = [n for n in json.loads(row["roster_display_names"] or "[]") if n]
+        if len(names) != 1:
+            continue
+        manager = names[0]
+
+        if row["status"] == "failed":
+            rows.append(
+                {
+                    "league_id": row["league_id"],
+                    "season": row["season"],
+                    "manager": manager,
+                    "spent": 0,
+                    "acquired": 0,
+                    "failed": 1,
+                }
+            )
+            continue
+        if row["status"] != "complete":
+            continue
+
+        settings = json.loads(row["settings"] or "{}")
+        bid = settings.get("waiver_bid")
+        if bid is None:
+            continue
+
+        adds = json.loads(row["adds"] or "{}")
+        if len(adds) != 1:
+            continue
+
+        rows.append(
+            {
+                "league_id": row["league_id"],
+                "season": row["season"],
+                "manager": manager,
+                "spent": bid,
+                "acquired": 1,
+                "failed": 0,
+            }
+        )
+
+    if not rows:
+        return pl.DataFrame(schema=_MANAGER_SEASON_SCHEMA)
+
+    flat = pl.DataFrame(rows)
+    summary = flat.group_by(["league_id", "season", "manager"]).agg(
+        pl.col("spent").sum().alias("total_spent"),
+        pl.col("acquired").sum().cast(pl.UInt32).alias("players_acquired"),
+        pl.col("failed").sum().cast(pl.UInt32).alias("failed_claims"),
+    )
+    summary = _with_avg_cost(summary)
+    return summary.select(list(_MANAGER_SEASON_SCHEMA.keys())).sort(
+        ["season", "league_id", "manager"]
+    )
+
+
+def career_waiver_spend(season_spend: pl.DataFrame) -> pl.DataFrame:
+    """Roll :func:`manager_waiver_spend`'s output up to one row per manager,
+    career-wide.
+
+    Args:
+        season_spend: Output of :func:`manager_waiver_spend`, spanning every
+            season to roll up.
+
+    Returns:
+        One row per manager: ``total_spent``/``players_acquired``/
+        ``failed_claims`` summed across every season present,
+        ``avg_cost_per_player`` recomputed from the summed totals (not
+        averaged across each season's own average, which would
+        under-weight a season with more acquisitions). Sorted by
+        ``total_spent`` descending.
+    """
+    if season_spend.height == 0:
+        return pl.DataFrame(schema=_CAREER_SCHEMA)
+
+    career = season_spend.group_by("manager").agg(
+        pl.col("total_spent").sum().alias("total_spent"),
+        pl.col("players_acquired").sum().alias("players_acquired"),
+        pl.col("failed_claims").sum().alias("failed_claims"),
+    )
+    career = _with_avg_cost(career)
+    return career.select(list(_CAREER_SCHEMA.keys())).sort(
+        "total_spent", descending=True
     )
