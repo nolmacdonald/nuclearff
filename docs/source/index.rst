@@ -14,31 +14,14 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
 .. grid:: 2
    :gutter: 3
 
-   .. grid-item-card:: Getting Started
-      :link: getting_started
+   .. grid-item-card:: User Tutorial
+      :link: tutorial/index
       :link-type: doc
 
-      New to nuclearff? Start here for installation and a quick overview.
-
-   .. grid-item-card:: User Guide
-      :link: user_guide
-      :link-type: doc
-
-      Every CLI command, feature by feature: league history, standings,
-      matchups, transactions, roster composition, and more.
-
-   .. grid-item-card:: Sleeper API Tutorial
-      :link: sleeper_api_tutorial
-      :link-type: doc
-
-      What the Sleeper API exposes, and how to fetch it yourself in Python.
-
-   .. grid-item-card:: League Trade History
-      :link: league_trade_history
-      :link-type: doc
-
-      Ten trade-history visualizations, from a single trade bar chart to a
-      chord diagram, all from one CLI command.
+      New to nuclearff? Start here — an 18-chapter, Python-first
+      walkthrough of every feature: installation, the Sleeper API,
+      scoring, projections, valuation, simulation, backtesting, league
+      history, and more. Command-line usage is its own final chapter.
 
    .. grid-item-card:: API Reference
       :link: api/index
@@ -56,10 +39,7 @@ through the `Sleeper API <https://docs.sleeper.com>`_.
    :maxdepth: 2
    :hidden:
 
-   getting_started
-   user_guide
-   sleeper_api_tutorial
-   league_trade_history
+   tutorial/index
    api/index
    changelog
    contributing
