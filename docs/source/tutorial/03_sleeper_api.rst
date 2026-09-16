@@ -1,36 +1,36 @@
-.. _sleeper_api_tutorial:
+.. _tutorial_sleeper_api:
 
-Sleeper API Tutorial
-=====================
+3. The Sleeper API in Python
+=================================
 
-This tutorial covers the `Sleeper API <https://docs.sleeper.com>`_ itself —
-what it is and what data it exposes — and then walks through fetching that
-data yourself in Python with :class:`~nuclearff.sleeper.client.SleeperClient`.
-:doc:`user_guide` shows the same data captured through the ``nuclearff`` CLI
-instead; this page goes one layer deeper, using the same client the CLI is
-built on.
+This chapter covers the `Sleeper API <https://docs.sleeper.com>`_ itself —
+what it is and what data it exposes — and
+:class:`~nuclearff.sleeper.client.SleeperClient`, the thin, paced, cached
+wrapper every other chapter in this tutorial is built on.
 
 About the Sleeper API
 -----------------------
 
-Sleeper's API is public, free, read-only, and requires no signup, API key, or
-authentication of any kind — every example below works as soon as you know a
-league ID. It is a plain JSON HTTP API at ``https://api.sleeper.app``; the
-official reference lives at `docs.sleeper.com <https://docs.sleeper.com>`_.
+Sleeper's API is public, free, read-only, and requires no signup, API key,
+or authentication of any kind — every example below works as soon as you
+know a league ID. It is a plain JSON HTTP API at
+``https://api.sleeper.app``; the official reference lives at
+`docs.sleeper.com <https://docs.sleeper.com>`_.
 
 In exchange for free, unauthenticated access, Sleeper asks callers to be
 polite: stay under roughly 1000 requests per minute, and fetch the full
 player map (the largest endpoint, ~5 MB) no more than once a day.
 :class:`~nuclearff.sleeper.client.SleeperClient` enforces both limits itself
-— requests are paced automatically, and the player map is cached to disk with
-a 24-hour TTL — so nothing in this tutorial needs to hand-roll throttling.
+— requests are paced automatically, and the player map is cached to disk
+with a 24-hour TTL — so nothing in this tutorial needs to hand-roll
+throttling.
 
-Data hangs off two roots: a **sport** (``nfl``) for the current state and the
-player map, and a **league** for everything else — members, rosters, weekly
-matchups and transactions, and drafts. A draft has its own sub-resources
-(picks, traded picks) once one exists.
+Data hangs off two roots: a **sport** (``nfl``) for the current state and
+the player map, and a **league** for everything else — members, rosters,
+weekly matchups and transactions, and drafts. A draft has its own
+sub-resources (picks, traded picks) once one exists.
 
-What Data Can You Get
+What data can you get
 ------------------------
 
 Every endpoint below is exposed by
@@ -109,34 +109,15 @@ that returns already-decoded JSON (a ``dict`` or ``list[dict]``):
    Sleeper player objects already carry cross-platform IDs, including
    ``gsis_id`` — nflverse's own primary key. That means a Sleeper player can
    usually be joined straight onto ``nflreadpy`` data without an extra ID
-   crosswalk. See ``notes/sleeper-player-object.md`` in the project brain for
-   the full field list, confirmed against a live fetch.
+   crosswalk — see :doc:`04_capturing_a_league`'s "Cross-referencing to
+   nflverse" section for the players who *don't* already have one.
 
-Prerequisites
----------------
-
-Install ``nuclearff`` with the development extras, as covered in
-:doc:`getting_started`::
-
-   uv sync --frozen --extra dev
-
-Nothing else is required — no account, no API key. You only need a league
-ID, which is the number in a league's Sleeper URL
-(``https://sleeper.com/leagues/<league_id>``).
-
-Fetching League Data in Python
----------------------------------
-
-The examples below run against the same example league used in
-:doc:`getting_started`, ``1367225133634191360``, and show real output fetched
-from it while writing this page. Your own league's members, rosters, and
-current week will differ.
-
-Connect to a league
-~~~~~~~~~~~~~~~~~~~~~~
+Connecting to a league
+-------------------------
 
 Use :class:`~nuclearff.sleeper.client.SleeperClient` as a context manager so
-its HTTP session is closed for you:
+its HTTP session is closed for you. Every example below runs against the
+same real league used throughout this tutorial:
 
 .. code-block:: python
 
@@ -148,21 +129,22 @@ its HTTP session is closed for you:
        state = client.get_state("nfl")
        league = client.get_league(league_id)
 
-``state`` is a small dict with ``season``, ``week``, and ``season_type`` —
-useful for knowing which week's matchups or transactions to fetch next.
-``league`` is the full settings object; two fields worth knowing immediately:
+``state`` is a small dict telling you which week's matchups or transactions
+to fetch next; ``league`` is the full settings object:
 
 .. code-block:: pycon
 
+   >>> state
+   {'week': 2, 'leg': 2, 'season': '2026', 'season_type': 'regular', ...}
    >>> league["name"]
    'NUCLEARFF REDRAFT'
    >>> league["roster_positions"]
    ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'FLEX', 'FLEX',
     'BN', 'BN', 'BN', 'BN', 'BN', 'BN']
 
-``roster_positions`` lists one entry per roster slot. This is what
-``nuclearff``'s league configuration reads to work out starter counts and
-replacement level — see :doc:`api/index`.
+``roster_positions`` lists one entry per roster slot — this is exactly what
+:class:`~nuclearff.config.league.RosterSlots` (:doc:`02_configuration`)
+counts to work out starter demand and replacement level.
 
 Who owns which roster
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -191,11 +173,8 @@ Rosters and users are separate endpoints, joined by ``owner_id`` /
    5 aperry151
    ...            (10 rosters total)
 
-Before a draft, ``roster["players"]`` is an empty list for every roster —
-there is nothing to resolve to player data yet.
-
 The Sleeper NFL player map
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------------
 
 :meth:`~nuclearff.sleeper.client.SleeperClient.get_players` returns every
 player Sleeper knows about — roughly 5 MB of JSON — keyed by Sleeper player
@@ -232,42 +211,74 @@ cache is older than ``players_ttl_hours`` (24 hours by default). Pass
 .. tip::
 
    Pass ``position=`` and/or ``active=`` to filter server-side and skip the
-   full 5 MB payload — confirmed live to shrink it to roughly 435 KB for
-   ``get_players(position="QB", active=True)``. A filtered call always hits
-   the network; the disk cache is specifically for the full unfiltered map.
+   full payload — confirmed live, ``get_players(position="QB", active=True)``
+   returns 355 players instead of the full ~12,000-player map. A filtered
+   call always hits the network; the disk cache is specifically for the full
+   unfiltered map.
+
+Trending players
+--------------------
+
+:meth:`~nuclearff.sleeper.client.SleeperClient.get_trending` returns the
+most-added or most-dropped players league-wide, right now — but only ever a
+bare ``player_id``. Resolve names yourself against the player map:
+
+.. code-block:: python
+
+   with SleeperClient() as client:
+       trending = client.get_trending(kind="add", lookback_hours=24, limit=5)
+       players = client.get_players()
+
+   for row in trending:
+       p = players.get(row["player_id"], {})
+       name = (
+           p.get("full_name")
+           or f"{p.get('first_name', '')} {p.get('last_name', '')}".strip()
+           or row["player_id"]
+       )
+       print(f"{name:30s} count={row['count']}")
+
+.. code-block:: text
+
+   Devaughn Vele                  count=1824382
+   Caleb Douglas                  count=1576392
+   Tampa Bay Buccaneers           count=1348055
+   Devin Singletary               count=1288782
+   Kaelon Black                   count=949235
+
+Note the ``first_name``/``last_name`` fallback: a team defense — like
+"Tampa Bay Buccaneers" above — has no ``full_name`` field in Sleeper's real
+payload, only the split fields.
 
 Handling errors
-~~~~~~~~~~~~~~~~~~
+--------------------
 
 A failed request raises a typed exception rather than a raw
-:mod:`requests` exception, so you can catch Sleeper-specific failures without
-also catching unrelated bugs:
-:exc:`~nuclearff.exceptions.SleeperHTTPError` for a non-retryable HTTP status
-(or once retries are exhausted on a 429 / 5xx), and
+:mod:`requests` exception, so you can catch Sleeper-specific failures
+without also catching unrelated bugs:
+:exc:`~nuclearff.exceptions.SleeperHTTPError` for a non-retryable HTTP
+status (or once retries are exhausted on a 429 / 5xx), and
 :exc:`~nuclearff.exceptions.SleeperResponseError` if a response isn't the
 shape expected — Sleeper returns a bare ``null`` for an unknown league or
 draft ID, for example, rather than a 404. Both subclass
-:exc:`~nuclearff.exceptions.SleeperAPIError` if you want to catch either.
+:exc:`~nuclearff.exceptions.SleeperAPIError` if you want to catch either:
 
-From Client Calls to nuclearff Pipelines
--------------------------------------------
+.. code-block:: python
 
-Everything above uses the same client the ``nuclearff`` CLI does — the CLI
-just wraps it into repeatable, on-disk artifacts (a league snapshot, the
-player map, and a growing set of DuckDB tables covering league history,
-standings, matchups, transactions, and roster composition). See
-:doc:`user_guide` for a complete walkthrough of every CLI command.
+   from nuclearff.exceptions import SleeperAPIError
 
-Reach for the CLI when you want those standard artifacts on disk. Reach for
-:class:`~nuclearff.sleeper.client.SleeperClient` directly, as in this
-tutorial, when you're exploring interactively or wiring the data into
-something the CLI doesn't build yet.
+   with SleeperClient() as client:
+       try:
+           client.get_league("not-a-real-league-id")
+       except SleeperAPIError as exc:
+           print(f"Sleeper call failed: {exc}")
 
-See Also
-----------
+What's Next
+-----------
 
-- :doc:`getting_started` — installation and configuration.
-- :doc:`user_guide` — every ``nuclearff`` CLI command, feature by feature.
-- :doc:`api/index` — full reference for ``SleeperClient``, ``LeagueSnapshot``,
-  and every other public symbol.
-- `docs.sleeper.com <https://docs.sleeper.com>`_ — Sleeper's own API reference.
+Everything above uses ``SleeperClient`` directly for one-off, interactive
+lookups. :doc:`04_capturing_a_league` builds on the exact same client to
+capture a *complete*, reproducible league dataset — a snapshot, full
+multi-season history, standings, matchups, transactions, and roster
+composition, all persisted so the rest of this tutorial can query them
+without hitting Sleeper again.
