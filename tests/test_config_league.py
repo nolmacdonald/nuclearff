@@ -316,6 +316,17 @@ def test_league_config_allows_null_draft_and_previous_league_id():
     assert cfg.previous_league_id is None
 
 
+def test_league_config_playoff_week_start_defaults_to_none():
+    """A LeagueConfig built without playoff_week_start defaults to None.
+
+    Backward-compatible with every existing caller (and fixture) built
+    before this field existed.
+    """
+    cfg = _league_config()
+
+    assert cfg.playoff_week_start is None
+
+
 # --- league_config_from_sleeper: the real fixture (acceptance benchmark) --
 
 
@@ -375,6 +386,47 @@ def test_league_config_from_sleeper_handles_null_draft_and_previous_league_id(
 
     assert cfg.draft_id is None
     assert cfg.previous_league_id is None
+
+
+def test_league_config_from_real_fixture_has_real_playoff_week_start(league_payload):
+    """The real committed fixture's playoff_week_start (15) is parsed through."""
+    cfg = league_config_from_sleeper(league_payload)
+
+    assert cfg.playoff_week_start == 15
+
+
+def test_league_config_from_sleeper_missing_playoff_week_start_is_none():
+    """A league missing playoff_week_start (e.g. Chopped) resolves to None."""
+    payload = _payload_without_playoff_week_start()
+
+    cfg = league_config_from_sleeper(payload)
+
+    assert cfg.playoff_week_start is None
+
+
+def _payload_without_playoff_week_start() -> dict[str, object]:
+    """A minimal, otherwise-valid league payload with no playoff_week_start setting."""
+    return {
+        "league_id": "1",
+        "name": "No Bracket League",
+        "season": 2026,
+        "total_rosters": 10,
+        "settings": {"num_teams": 10},
+        "scoring_settings": {"rec": 1.0},
+        "roster_positions": ["QB", "RB", "WR", "BN"],
+        "draft_id": None,
+        "previous_league_id": None,
+    }
+
+
+def test_league_config_from_sleeper_rejects_non_positive_playoff_week_start():
+    """A malformed (0 or negative) playoff_week_start coerces to None, not a bad int."""
+    payload = _payload_without_playoff_week_start()
+    payload["settings"] = {"num_teams": 10, "playoff_week_start": 0}
+
+    cfg = league_config_from_sleeper(payload)
+
+    assert cfg.playoff_week_start is None
 
 
 def test_league_config_from_sleeper_raises_config_error_on_missing_field():

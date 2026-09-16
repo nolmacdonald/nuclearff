@@ -232,6 +232,7 @@ def test_league_config_rows_captures_roster_and_scoring_flags(league_payload):
     assert row["roster_flex"] == 3
     assert row["roster_bench"] == 6
     assert row["previous_league_id"] == PREVIOUS_LEAGUE_ID
+    assert row["playoff_week_start"] == 15
 
 
 # --- write_league_tables ---------------------------------------------------

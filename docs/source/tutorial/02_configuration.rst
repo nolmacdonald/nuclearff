@@ -144,6 +144,22 @@ slot), and a generic mapping absorbs them instead of failing to parse:
 
    1.0 6.0
 
+``playoff_week_start`` — the first week of the fantasy playoffs — is
+parsed through the same way, straight from Sleeper's own
+``settings.playoff_week_start`` rather than a hardcoded guess:
+
+.. code-block:: python
+
+   print(league_cfg.playoff_week_start)
+
+.. code-block:: text
+
+   15
+
+It's ``None`` for a league that doesn't expose one (a "Chopped" league has
+no bracket at all) — :doc:`13_league_history`'s regular-season/playoff
+split uses exactly this field rather than assuming a fixed week range.
+
 Save it so it can be reloaded without hitting Sleeper again:
 
 .. code-block:: python

@@ -129,11 +129,41 @@ combined record for every manager pair that has ever met:
    │ ksavabi   ┆ nolmacdonald ┆ 12    ┆ 5      ┆ 7      ┆ 63.64                  │
    └───────────┴──────────────┴───────┴────────┴────────┴────────────────────────┘
 
-This is the combined regular-season **and** playoff record — a
-regular-season/playoff split is tracked as a real gap (GitHub Issue #137,
-blocked on a ``LeagueConfig.playoff_week_start`` field this league
-history epic shares with the draft-companion epic), not silently modeled
-as if the two were identical.
+This is the combined regular-season **and** playoff record.
+:func:`~nuclearff.archive.rivalries.head_to_head_by_phase` splits it —
+using :class:`~nuclearff.config.league.LeagueConfig`'s real
+``playoff_week_start`` (:doc:`02_configuration`) to tell the two apart,
+rather than a hardcoded week range:
+
+.. code-block:: python
+
+   from nuclearff.archive.rivalries import head_to_head_by_phase
+
+   league_configs = read_table(db_path, "sleeper_league_configs")
+   split = head_to_head_by_phase(matchups, standings, league_configs)
+
+   top_pair = split.filter(
+       (pl.col("manager_a") == "aperry151") & (pl.col("manager_b") == "hyoga10")
+   )
+   print(top_pair.select(["phase", "games", "wins_a", "wins_b"]))
+
+.. code-block:: text
+
+   shape: (2, 4)
+   ┌────────────────┬───────┬────────┬────────┐
+   │ phase          ┆ games ┆ wins_a ┆ wins_b │
+   ╞════════════════╪═══════╪════════╪════════╡
+   │ regular_season ┆ 12    ┆ 6      ┆ 5      │
+   │ playoff        ┆ 3     ┆ 1      ┆ 2      │
+   └────────────────┴───────┴────────┴────────┘
+
+12 + 3 = 15, matching this pair's combined ``games`` above — the real
+cross-check :func:`head_to_head_by_phase`'s own docstring promises,
+verified against this league's full real history (0 mismatched pairs
+across every manager pair that has ever met). A ``(league_id, season)``
+with no resolvable ``playoff_week_start`` — a real "Chopped" league with
+no bracket, or a season simply missing from ``league_configs`` — is
+excluded from **both** phases rather than guessed into one.
 
 Draft retrospectives
 --------------------------
