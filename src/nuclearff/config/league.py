@@ -358,6 +358,14 @@ class LeagueConfig(BaseModel):
         draft_id: The league's current draft identifier, when one exists.
         previous_league_id: The prior season's league identifier, for
             leagues that carry one over year to year.
+        playoff_week_start: The first week of the fantasy playoffs, from
+            Sleeper's own ``settings.playoff_week_start``. ``None`` if the
+            league doesn't expose one (e.g. a "Chopped" league, which has
+            no bracket at all — see
+            :func:`nuclearff.sleeper.standings.is_chopped_league`) — never
+            guessed at a default like week 15, since real leagues vary this
+            setting (see issues #106/#110/#113/#137, which all
+            independently hit this same gap).
 
     """
 
@@ -373,6 +381,7 @@ class LeagueConfig(BaseModel):
     league_type: int
     draft_id: str | None
     previous_league_id: str | None
+    playoff_week_start: int | None = None
 
     def starter_demand(
         self,
@@ -529,6 +538,13 @@ def league_config_from_sleeper(league_json: dict[str, Any]) -> LeagueConfig:
     draft_id = league_json.get("draft_id")
     previous_league_id = league_json.get("previous_league_id")
 
+    playoff_week_start = settings.get("playoff_week_start")
+    if not isinstance(playoff_week_start, int) or playoff_week_start <= 0:
+        # Sleeper omits this for at least "Chopped" leagues (no bracket at
+        # all); coerced to `None` rather than a guessed default -- see the
+        # field's own docstring.
+        playoff_week_start = None
+
     try:
         return LeagueConfig(
             league_id=str(league_json["league_id"]),
@@ -543,6 +559,7 @@ def league_config_from_sleeper(league_json: dict[str, Any]) -> LeagueConfig:
             previous_league_id=(
                 str(previous_league_id) if previous_league_id else None
             ),
+            playoff_week_start=playoff_week_start,
         )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         raise ConfigError(
