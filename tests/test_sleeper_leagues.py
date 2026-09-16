@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 
 import duckdb
+import polars as pl
 import pytest
 import responses
 
@@ -17,6 +18,7 @@ from nuclearff.sleeper import SleeperClient
 from nuclearff.sleeper.leagues import (
     CONFIG_TABLE_NAME,
     TABLE_NAME,
+    league_chain_ids,
     league_config_rows,
     league_rows,
     league_type_name,
@@ -320,3 +322,39 @@ def test_write_league_tables_refetching_the_same_league_does_not_duplicate(
         (total,) = conn.execute(f"SELECT COUNT(*) FROM {TABLE_NAME}").fetchone()
 
     assert total == 1
+
+
+def _leagues_frame(chain: dict[str, str | None]) -> pl.DataFrame:
+    """``{league_id: previous_league_id}`` -> a minimal TABLE_NAME-shaped frame."""
+    return pl.DataFrame(
+        {
+            "league_id": list(chain.keys()),
+            "previous_league_id": list(chain.values()),
+        }
+    )
+
+
+def test_league_chain_ids_walks_multiple_seasons():
+    leagues = _leagues_frame({"2026id": "2025id", "2025id": "2024id", "2024id": None})
+
+    result = league_chain_ids(leagues, "2026id")
+
+    assert set(result) == {"2026id", "2025id", "2024id"}
+
+
+def test_league_chain_ids_stops_at_missing_history():
+    """A league_id missing from `leagues` (history never fetched) returns itself."""
+    leagues = _leagues_frame({"other_league": None})
+
+    result = league_chain_ids(leagues, "2026id")
+
+    assert result == ["2026id"]
+
+
+def test_league_chain_ids_does_not_loop_on_a_cycle():
+    """A malformed/cyclic previous_league_id chain must not infinite-loop."""
+    leagues = _leagues_frame({"a": "b", "b": "a"})
+
+    result = league_chain_ids(leagues, "a")
+
+    assert set(result) == {"a", "b"}

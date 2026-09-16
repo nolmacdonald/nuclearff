@@ -17,6 +17,7 @@ from nuclearff.cli import (
     _densify_manager_season_matrix,
     _densify_trade_matrix,
     _densify_trades_by_season,
+    _waiver_budgets_by_league,
     build_parser,
     main,
 )
@@ -1169,6 +1170,30 @@ def test_densify_manager_season_matrix_fills_every_combination():
     assert dense.filter(pl.col("manager") == "nolmacdonald")["2025"].item() == 0
     assert dense.filter(pl.col("manager") == "hyoga10")["2025"].item() == 0
     assert dense.filter(pl.col("manager") == "hyoga10")["2026"].item() == 0
+
+
+def test_waiver_budgets_by_league_skips_leagues_with_no_real_budget():
+    """A priority-waiver league (waiver_budget absent or falsy) is omitted
+    entirely, not included with a zero -- issue #118's FAAB note treats
+    "absent" and "zero budget" as the same "not applicable" signal."""
+    import json
+
+    leagues = pl.DataFrame(
+        {
+            "league_id": ["faab_league", "priority_league", "no_settings_league"],
+            "settings": [
+                json.dumps({"waiver_budget": 100}),
+                json.dumps({"waiver_budget": 0}),
+                json.dumps({}),
+            ],
+        }
+    )
+
+    result = _waiver_budgets_by_league(
+        leagues, ["faab_league", "priority_league", "no_settings_league"]
+    )
+
+    assert result == {"faab_league": 100}
 
 
 @responses.activate
