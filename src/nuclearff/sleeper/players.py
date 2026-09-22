@@ -12,12 +12,12 @@ parameterized SQL rather than a Polars/pandas DataFrame handoff — see that
 module for why.
 
 **Unchanged-fetch short-circuit (issue #149).** ``replace_table`` always
-``DROP``s and rebuilds the whole table (~11k rows), even when Sleeper's
-player map hasn't actually changed since the last fetch — a real, wasted
-cost once this runs on a schedule rather than by hand. :func:`write_players_table`
-compares a content hash of the incoming rows against the hash recorded for
-the previous write (in a tiny sibling metadata table) and skips the
-rewrite entirely when they match.
+runs a ``DROP TABLE`` and rebuilds the whole table (~11k rows), even when
+Sleeper's player map hasn't actually changed since the last fetch — a
+real, wasted cost once this runs on a schedule rather than by hand.
+:func:`write_players_table` compares a content hash of the incoming rows
+against the hash recorded for the previous write (in a tiny sibling
+metadata table) and skips the rewrite entirely when they match.
 """
 
 from __future__ import annotations
