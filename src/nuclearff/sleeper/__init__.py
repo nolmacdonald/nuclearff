@@ -40,6 +40,7 @@ from nuclearff.sleeper.standings import (
     resolve_final_ranks,
     roster_display_names,
     standings_rows,
+    user_avatar_rows,
 )
 from nuclearff.sleeper.trades import (
     cumulative_trade_counts,
@@ -90,6 +91,7 @@ __all__ = [
     "trades_by_season",
     "transaction_player_rows",
     "transaction_rows",
+    "user_avatar_rows",
     "walk_league_chain",
     "write_league_tables",
     "write_players_table",

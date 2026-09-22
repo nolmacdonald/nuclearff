@@ -1058,6 +1058,43 @@ def test_report_draft_board_reports_no_picks_made_yet(tmp_path, capsys):
     assert "No picks made yet" in capsys.readouterr().out
 
 
+@responses.activate
+def test_report_draft_board_skips_the_live_picks_refetch_once_fully_cached(
+    tmp_path, capsys
+):
+    """A draft with cached rows == teams * rounds is never refetched live
+    (issue #150) -- get_draft/get_users are still fetched each render since
+    neither is persisted anywhere this command reads back."""
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=_DRAFT_BOARD_DRAFT)
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}/picks", json=_DRAFT_BOARD_PICKS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=_DRAFT_BOARD_USERS
+    )
+    args = [
+        "--root",
+        str(tmp_path),
+        "report",
+        "draft-board",
+        LEAGUE_ID,
+        "--draft-id",
+        DRAFT_ID,
+    ]
+    assert main(args) == EXIT_OK
+    capsys.readouterr()
+
+    responses.calls.reset()
+    responses.get(f"{TEST_BASE_URL}/v1/draft/{DRAFT_ID}", json=_DRAFT_BOARD_DRAFT)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=_DRAFT_BOARD_USERS
+    )
+
+    exit_code = main(args)
+
+    assert exit_code == EXIT_OK
+    assert "Picks:       2" in capsys.readouterr().out
+    assert all("/picks" not in call.request.url for call in responses.calls)
+
+
 # --- report trades -----------------------------------------------------
 
 _TRADES_LEAGUE_ID = "1240509989819273216"
@@ -1631,19 +1668,6 @@ def _seed_two_season_wins(tmp_path):
             {"roster_id": 2, "matchup_id": 1, "points": 110.0},
         ],
     )
-    responses.get(
-        f"{TEST_BASE_URL}/v1/user/u1",
-        json={"user_id": "u1", "display_name": "nolmacdonald", "avatar": None},
-    )
-    responses.get(
-        f"{TEST_BASE_URL}/v1/user/u2",
-        json={"user_id": "u2", "display_name": "hyoga10", "avatar": None},
-    )
-    responses.get(
-        f"{TEST_BASE_URL}/v1/user/u3",
-        json={"user_id": "u3", "display_name": "departed_mgr", "avatar": None},
-    )
-
     db_path = tmp_path / "data" / "cache" / "nuclearff.duckdb"
     leagues = [
         {"league_id": current_id, "season": 2025},
@@ -1682,6 +1706,20 @@ def test_report_wins_all_users_includes_a_departed_manager(tmp_path, capsys):
 
     assert exit_code == EXIT_OK
     assert "Managers: 3" in capsys.readouterr().out
+
+
+@responses.activate
+def test_report_wins_resolves_avatars_without_a_live_per_manager_call(tmp_path, capsys):
+    """Issue #150: avatars come from sleeper_user_avatars (written by the
+    standings fetch this seed helper already ran), never a live
+    SleeperClient.get_user call per manager."""
+    current_id = _seed_two_season_wins(tmp_path)
+    responses.calls.reset()
+
+    exit_code = main(["--root", str(tmp_path), "report", "wins", current_id])
+
+    assert exit_code == EXIT_OK
+    assert not any("/v1/user/" in call.request.url for call in responses.calls)
 
 
 # --- report draft-order (GitHub Issue 85) -----------------------------------

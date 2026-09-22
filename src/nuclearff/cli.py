@@ -646,8 +646,48 @@ def _cmd_report_playoff_bracket(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cached_pick_count(db_path: Path, draft_id: str) -> int:
+    """Count already-cached ``sleeper_draft_picks`` rows for one draft.
+
+    Tolerant of a missing database file or table (a draft never fetched
+    before) -- returns ``0`` rather than raising, matching "nothing cached
+    yet" rather than treating it as an error.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        draft_id: Sleeper draft identifier.
+
+    Returns:
+        The number of cached pick rows for ``draft_id``.
+    """
+    import duckdb
+
+    from nuclearff.sleeper.draft import TABLE_NAME
+
+    if not Path(db_path).is_file():
+        return 0
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) FROM {TABLE_NAME} WHERE draft_id = ?", [draft_id]
+            ).fetchone()
+    except duckdb.Error:
+        return 0
+    return row[0] if row is not None else 0
+
+
 def _cmd_report_draft_board(args: argparse.Namespace) -> int:
     """Fetch a draft's picks, persist them, and render a snake-order grid.
+
+    **Skips the live picks refetch (issue #150)** when a draft is already
+    fully picked (``cached rows == teams * rounds``) -- a completed draft's
+    picks never change, so a completed draft is read straight from the
+    cache instead of hitting ``get_draft_picks`` again on every render.
+    ``get_draft``/``get_users`` are still fetched live either way: neither
+    a draft's settings/order/name nor its users are persisted anywhere
+    this command can read back (only the picks are), and both are cheap,
+    single, non-per-item calls -- not the N-per-render cost this issue is
+    about.
 
     Args:
         args: Parsed arguments carrying ``league_id``, ``draft_id``, ``out``.
@@ -672,17 +712,29 @@ def _cmd_report_draft_board(args: argparse.Namespace) -> int:
                 return EXIT_ERROR
             draft_id = drafts[0]["draft_id"]
 
-        pick_count = fetch_and_write_draft_picks(client, draft_id, db_path)
         draft = client.get_draft(draft_id)
         users = client.get_users(args.league_id)
+
+        settings = draft.get("settings") or {}
+        teams = settings.get("teams")
+        rounds = settings.get("rounds")
+
+        cached = _cached_pick_count(db_path, draft_id)
+        if (
+            isinstance(teams, int)
+            and isinstance(rounds, int)
+            and cached >= teams * rounds
+        ):
+            pick_count = cached
+        else:
+            pick_count = fetch_and_write_draft_picks(
+                client, draft_id, db_path, draft=draft
+            )
 
     if pick_count == 0:
         print(f"No picks made yet in draft {draft_id}.")
         return EXIT_ERROR
 
-    settings = draft.get("settings") or {}
-    teams = settings.get("teams")
-    rounds = settings.get("rounds")
     if not isinstance(teams, int) or not isinstance(rounds, int):
         print(f"Draft {draft_id} has no teams/rounds settings; cannot lay out a grid.")
         return EXIT_ERROR
@@ -1148,6 +1200,15 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
             )
             return EXIT_ERROR
 
+        # Avatars are cosmetic (a missing/placeholder image, never a hard
+        # failure) and only ever get written as a side effect of a standings
+        # fetch (issue #150) -- a cache from before that shipped, or one that
+        # simply hasn't re-fetched since, has no such table yet.
+        try:
+            avatars_table = read_table(db_path, "sleeper_user_avatars", connection=conn)
+        except StorageError:
+            avatars_table = None
+
     cumulative = cumulative_wins(weekly_results(matchups), standings)
     if not args.all_users:
         # A win/loss is a personal fact about the manager who earned it, not
@@ -1160,10 +1221,11 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
         print("No completed matchups found for any manager.")
         return EXIT_ERROR
 
-    # One owner_id per manager -- their most recent season's -- for a
-    # single live avatar lookup per manager rather than per season. Only
-    # for managers actually being rendered: with `all_users=False`, this
-    # also avoids a wasted live API call per excluded manager.
+    # One owner_id per manager -- their most recent season's -- resolved
+    # against the avatars already persisted by a standings fetch (issue
+    # #150), not a live per-manager Sleeper call. Only for managers
+    # actually being rendered: with `all_users=False`, a departed manager's
+    # avatar is never looked up at all.
     rendered_managers = cumulative["manager"].unique().to_list()
     owner_ids = (
         standings.filter(
@@ -1174,17 +1236,15 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
         .group_by("display_name", maintain_order=True)
         .agg(pl.col("owner_id").first())
     )
-    avatar_ids: dict[str, str | None] = {}
-    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
-        for row in owner_ids.iter_rows(named=True):
-            try:
-                user = client.get_user(row["owner_id"])
-                avatar_ids[row["display_name"]] = user.get("avatar")
-            except NuclearffError as exc:
-                logger.warning(
-                    "Could not resolve avatar for %s: %s", row["display_name"], exc
-                )
-                avatar_ids[row["display_name"]] = None
+    avatar_by_owner: dict[str, str | None] = (
+        dict(zip(avatars_table["owner_id"], avatars_table["avatar"], strict=True))
+        if avatars_table is not None and avatars_table.height
+        else {}
+    )
+    avatar_ids: dict[str, str | None] = {
+        row["display_name"]: avatar_by_owner.get(row["owner_id"])
+        for row in owner_ids.iter_rows(named=True)
+    }
 
     out_path = (
         Path(args.out)

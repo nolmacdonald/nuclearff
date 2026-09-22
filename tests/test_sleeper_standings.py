@@ -14,6 +14,7 @@ import responses
 
 from nuclearff.sleeper import SleeperClient
 from nuclearff.sleeper.standings import (
+    AVATARS_TABLE_NAME,
     MATCHES_TABLE_NAME,
     STANDINGS_TABLE_NAME,
     bracket_match_rows,
@@ -23,6 +24,7 @@ from nuclearff.sleeper.standings import (
     resolve_final_ranks,
     roster_display_names,
     standings_rows,
+    user_avatar_rows,
 )
 from tests.conftest import TEST_BASE_URL
 
@@ -76,8 +78,8 @@ ROSTERS = [
 ]
 
 USERS = [
-    {"user_id": "u1", "display_name": "Alice"},
-    {"user_id": "u2", "display_name": "Bob"},
+    {"user_id": "u1", "display_name": "Alice", "avatar": "avatar-abc"},
+    {"user_id": "u2", "display_name": "Bob", "avatar": None},
 ]
 
 WINNERS_BRACKET = [
@@ -186,6 +188,31 @@ def test_roster_display_names_handles_missing_or_absent_owner():
 
     assert names[3] is None
     assert names[4] is None
+
+
+# --- user_avatar_rows (issue #150) -------------------------------------------
+
+
+def test_user_avatar_rows_builds_one_row_per_user():
+    users = [
+        {"user_id": "u1", "display_name": "Alice", "avatar": "abc123"},
+        {"user_id": "u2", "display_name": "Bob", "avatar": None},
+    ]
+
+    rows = {row["owner_id"]: row for row in user_avatar_rows(LEAGUE_ID, 2025, users)}
+
+    assert rows["u1"]["avatar"] == "abc123"
+    assert rows["u2"]["avatar"] is None
+    assert rows["u1"]["league_id"] == LEAGUE_ID
+    assert rows["u1"]["season"] == 2025
+
+
+def test_user_avatar_rows_skips_a_user_with_no_real_user_id():
+    users = [{"user_id": None, "display_name": "ghost", "avatar": "x"}, "not-a-dict"]
+
+    rows = user_avatar_rows(LEAGUE_ID, 2025, users)
+
+    assert rows == []
 
 
 # --- resolve_final_ranks ----------------------------------------------------
@@ -388,6 +415,36 @@ def test_fetch_and_write_standings_round_trips_through_duckdb(client, tmp_path):
     assert bracket_count == len(WINNERS_BRACKET) + len(LOSERS_BRACKET)
 
 
+@responses.activate
+def test_fetch_and_write_standings_also_writes_avatars_from_the_same_users_call(
+    client, tmp_path
+):
+    """No new Sleeper call -- avatars come from the same get_users response
+    already fetched for display names (issue #150)."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=WINNERS_BRACKET
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=LOSERS_BRACKET
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+
+    fetch_and_write_standings(
+        client, [{"league_id": LEAGUE_ID, "season": 2025}], db_path
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        rows = dict(
+            conn.execute(
+                f"SELECT owner_id, avatar FROM {AVATARS_TABLE_NAME}"
+            ).fetchall()
+        )
+
+    assert rows == {"u1": "avatar-abc", "u2": None}
+
+
 # --- incremental fetch (issue #148) -----------------------------------------
 
 
@@ -419,6 +476,11 @@ def test_fetch_and_write_standings_skips_a_cached_complete_league_entirely(
     assert standings_count == 4
     assert matches_count == len(WINNERS_BRACKET) + len(LOSERS_BRACKET)
     assert len(responses.calls) == 0
+    with duckdb.connect(str(db_path)) as conn:
+        (avatar_count,) = conn.execute(
+            f"SELECT COUNT(*) FROM {AVATARS_TABLE_NAME}"
+        ).fetchone()
+    assert avatar_count == len(USERS)  # carried forward, not lost by the skip
 
 
 @responses.activate
