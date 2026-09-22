@@ -17,12 +17,30 @@ cluster mean, so **tier 1 is always the highest-value group**. Getting this
 backwards (reporting raw labels) is the single easiest way to invert this
 module's output, and is explicitly guarded against in
 ``tests/test_valuation_tiers.py``.
+
+Memoization (issue #151)
+-------------------------
+Auto-``k`` selection (:func:`_select_k`) refits a full ``KMeans`` *and* an
+O(n²) ``silhouette_score`` for every candidate ``k`` up to ``max_k`` -- not
+on any pipeline/CLI path today, but explicitly slated to back interactive
+dashboard tier displays, where a naive wiring would redo that whole search
+on every Streamlit rerun for input that hasn't changed.
+:func:`assign_tiers` is deterministic given ``values``/``k``/``max_k``/
+``random_state``, but ``values`` (a list or a mutable, unhashable
+``pl.Series``) can't be an :func:`functools.lru_cache` key directly --
+:func:`_assign_tiers_cached` takes a ``tuple`` instead, and
+:func:`assign_tiers` converts to one before dispatching. The cached
+function returns a ``tuple`` too (immutable), so unlike
+:mod:`nuclearff.simulation.montecarlo`'s ``ndarray`` case, no defensive
+copy is needed to protect the cache from a caller mutating what they got
+back.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from functools import lru_cache
 
 import numpy as np
 import polars as pl
@@ -35,6 +53,11 @@ _N_INIT = 10
 """KMeans restarts per fit. Fixed (not "auto") so results are stable across
 scikit-learn versions that change the "auto" heuristic's default resolution.
 """
+
+_CACHE_MAXSIZE = 256
+"""Bounds the memoization cache's memory rather than leaving it unbounded --
+the same "no unbounded, unevicted cache" concern already raised elsewhere in
+the 2026-09-21 hosting-cost audit (nuclearff_dashboard issue #13)."""
 
 
 def _kmeans_tiers(arr: np.ndarray, k: int, random_state: int) -> list[int]:
@@ -125,6 +148,33 @@ def _select_k(arr: np.ndarray, max_k: int, random_state: int, n_distinct: int) -
     return best_k
 
 
+@lru_cache(maxsize=_CACHE_MAXSIZE)
+def _assign_tiers_cached(
+    values: tuple[float, ...], k: int | None, max_k: int, random_state: int
+) -> tuple[int, ...]:
+    """:func:`assign_tiers`'s body, memoized on a hashable ``tuple`` of values.
+
+    See the module docstring's "Memoization" note for why ``values`` is a
+    ``tuple`` here rather than the public function's `Sequence`/`pl.Series`.
+    """
+    arr = np.asarray(values, dtype=float).reshape(-1, 1)
+    n = arr.shape[0]
+
+    if n == 0:
+        return ()
+
+    n_distinct = len({round(v, 12) for v in arr.flatten().tolist()})
+    if n_distinct < 2 or n < 2:
+        return tuple([1] * n)
+
+    if k is not None:
+        chosen_k = max(1, min(k, n))
+    else:
+        chosen_k = _select_k(arr, max_k, random_state, n_distinct)
+
+    return tuple(_kmeans_tiers(arr, chosen_k, random_state))
+
+
 def assign_tiers(
     values: Sequence[float] | pl.Series,
     *,
@@ -152,6 +202,11 @@ def assign_tiers(
     likewise if fewer points are available than the smallest ``k`` under
     consideration.
 
+    **Memoized** (issue #151): a repeat call with the exact same values (in
+    the same order) and the same ``k``/``max_k``/``random_state`` returns a
+    cached result instead of refitting k-means (and, for auto-``k``,
+    resilhouetting every candidate) from scratch.
+
     Args:
         values: The values to tier, e.g. a ``vorp`` column. Order is
             preserved in the output.
@@ -165,19 +220,5 @@ def assign_tiers(
         Tier numbers, one per element of ``values``, same order. Tier 1 is
         the highest-value group; higher tier numbers are lower value.
     """
-    arr = np.asarray(list(values), dtype=float).reshape(-1, 1)
-    n = arr.shape[0]
-
-    if n == 0:
-        return []
-
-    n_distinct = len({round(v, 12) for v in arr.flatten().tolist()})
-    if n_distinct < 2 or n < 2:
-        return [1] * n
-
-    if k is not None:
-        chosen_k = max(1, min(k, n))
-    else:
-        chosen_k = _select_k(arr, max_k, random_state, n_distinct)
-
-    return _kmeans_tiers(arr, chosen_k, random_state)
+    values_key = tuple(float(v) for v in values)
+    return list(_assign_tiers_cached(values_key, k, max_k, random_state))

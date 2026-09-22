@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import polars as pl
 
+from nuclearff.valuation import tiers
 from nuclearff.valuation.tiers import assign_tiers
 
 
@@ -138,3 +139,45 @@ class TestReturnShape:
         first = assign_tiers(values, k=3, random_state=2026)
         second = assign_tiers(values, k=3, random_state=2026)
         assert first == second
+
+
+class TestMemoization:
+    """Issue #151: a repeat call with identical arguments must not refit
+    k-means from scratch."""
+
+    def test_repeated_call_does_not_refit_kmeans(self, monkeypatch):
+        calls = []
+        original_fit_predict = tiers.KMeans.fit_predict
+
+        def counting_fit_predict(self, *args, **kwargs):
+            calls.append(1)
+            return original_fit_predict(self, *args, **kwargs)
+
+        monkeypatch.setattr(tiers.KMeans, "fit_predict", counting_fit_predict)
+        tiers._assign_tiers_cached.cache_clear()  # isolate from other tests
+
+        values = [10.0, 100.0, 50.0, 98.0, 8.0, 45.0, 95.0, 5.0, 48.0]
+        first = assign_tiers(values, k=3, random_state=2026)
+        fits_after_first_call = len(calls)
+        second = assign_tiers(values, k=3, random_state=2026)
+
+        assert fits_after_first_call > 0  # sanity: the first call did fit
+        assert len(calls) == fits_after_first_call  # the second was a cache hit
+        assert first == second
+
+    def test_accepts_a_polars_series_as_a_cache_key_too(self):
+        """A pl.Series isn't hashable -- assign_tiers must convert it before
+        it ever reaches the memoized function, not just when unmemoized."""
+        series = pl.Series([10.0, 100.0, 50.0])
+        assert assign_tiers(series, k=2) == assign_tiers([10.0, 100.0, 50.0], k=2)
+
+    def test_a_different_random_state_is_not_a_cache_hit(self):
+        values = [10.0, 100.0, 50.0, 98.0, 8.0, 45.0, 95.0, 5.0, 48.0]
+        first = assign_tiers(values, k=3, random_state=1)
+        second = assign_tiers(values, k=3, random_state=2)
+
+        # Not asserting they differ (k-means could coincidentally agree) --
+        # only that requesting a different random_state is never silently
+        # served from the random_state=1 cache entry.
+        assert first == assign_tiers(values, k=3, random_state=1)
+        assert second == assign_tiers(values, k=3, random_state=2)

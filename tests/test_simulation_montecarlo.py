@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from scipy.stats import skew as empirical_skew
+from scipy.stats import skewnorm
 
 from nuclearff.config.models import SimulationConfig
 from nuclearff.simulation.montecarlo import (
@@ -121,6 +122,65 @@ class TestSimulatePlayerSeasonDeterminism:
     def test_returns_requested_number_of_simulations(self):
         samples = simulate_player_season(MEAN_PPG, SD_PPG, n_simulations=250, seed=1)
         assert samples.shape == (250,)
+
+
+class TestSimulatePlayerSeasonMemoization:
+    """Issue #151: a real seed is memoized; ``seed=None`` never is."""
+
+    def test_repeated_call_with_a_real_seed_does_not_redraw(self, monkeypatch):
+        calls = []
+        original_rvs = skewnorm.rvs
+
+        def counting_rvs(*args, **kwargs):
+            calls.append(1)
+            return original_rvs(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "nuclearff.simulation.montecarlo.skewnorm.rvs", counting_rvs
+        )
+
+        first = simulate_player_season(
+            MEAN_PPG, SD_PPG, skew=1.0, games=17, n_simulations=50, seed=99
+        )
+        second = simulate_player_season(
+            MEAN_PPG, SD_PPG, skew=1.0, games=17, n_simulations=50, seed=99
+        )
+
+        assert len(calls) == 1  # the second call was a cache hit, not a redraw
+        assert np.array_equal(first, second)
+
+    def test_the_returned_array_is_never_a_shared_reference(self):
+        """A caller mutating what they got back must not corrupt a future
+        cache hit for the same arguments."""
+        first = simulate_player_season(
+            MEAN_PPG, SD_PPG, skew=1.0, games=17, n_simulations=50, seed=123
+        )
+        first[0] = -999999.0
+
+        second = simulate_player_season(
+            MEAN_PPG, SD_PPG, skew=1.0, games=17, n_simulations=50, seed=123
+        )
+
+        assert second[0] != -999999.0
+
+    def test_seed_none_is_never_cached_and_keeps_drawing_fresh_entropy(
+        self, monkeypatch
+    ):
+        calls = []
+        original_rvs = skewnorm.rvs
+
+        def counting_rvs(*args, **kwargs):
+            calls.append(1)
+            return original_rvs(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "nuclearff.simulation.montecarlo.skewnorm.rvs", counting_rvs
+        )
+
+        simulate_player_season(MEAN_PPG, SD_PPG, n_simulations=50, seed=None)
+        simulate_player_season(MEAN_PPG, SD_PPG, n_simulations=50, seed=None)
+
+        assert len(calls) == 2  # neither call was a cache hit
 
 
 class TestSummarizeDistribution:

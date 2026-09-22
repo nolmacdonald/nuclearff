@@ -54,11 +54,27 @@ records a ``seed`` field in its run manifest precisely so a published ranking
 can be exactly reproduced later. A simulation function that is not actually
 deterministic given the same seed would silently break that guarantee, so
 every function here is byte-identical across two calls given the same seed.
+
+Memoization (issue #151)
+-------------------------
+:func:`simulate_player_season` isn't on any pipeline/CLI path today, but is
+explicitly slated to back interactive dashboard cards (10,000 draws by
+default, per player, per render). :func:`_simulate_player_season_cached`
+memoizes it with :func:`functools.lru_cache` -- **only** when ``seed`` is a
+real integer. ``seed=None`` means "draw fresh entropy," a real, intentional
+per-call outcome documented above; caching that call would freeze it to
+whatever the first caller happened to draw and silently hand every later
+caller the same "random" result forever, exactly the kind of bug this
+module's whole determinism posture exists to prevent. The public function
+dispatches to the cache only for an explicit seed and always returns a
+copy of the cached array, since a caller mutating the array they got back
+would otherwise corrupt every future cache hit for the same arguments.
 """
 
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 
 import numpy as np
 from scipy.stats import skewnorm
@@ -66,6 +82,11 @@ from scipy.stats import skewnorm
 from nuclearff.config.models import SimulationConfig
 
 logger = logging.getLogger(__name__)
+
+_CACHE_MAXSIZE = 1024
+"""Bounds the memoization cache's memory rather than leaving it unbounded --
+the same "no unbounded, unevicted cache" concern already raised elsewhere in
+the 2026-09-21 hosting-cost audit (nuclearff_dashboard issue #13)."""
 
 
 def _skewnorm_loc_scale(
@@ -96,6 +117,57 @@ def _skewnorm_loc_scale(
     return float(loc), float(scale)
 
 
+def _simulate_player_season(
+    mean_ppg: float,
+    sd_ppg: float,
+    skew: float,
+    games: int,
+    n_simulations: int,
+    seed: int | None,
+) -> np.ndarray:
+    """Uncached simulation body, shared by the cached and direct paths.
+
+    Args:
+        mean_ppg: Target mean weekly fantasy points.
+        sd_ppg: Target standard deviation of weekly fantasy points. Must be
+            positive; validated by the caller.
+        skew: skewnorm shape parameter.
+        games: Number of independent weekly draws summed into each season.
+        n_simulations: Number of simulated seasons to draw.
+        seed: Seed for `numpy.random.default_rng`; `None` draws fresh
+            entropy.
+
+    Returns:
+        A 1-D array of `n_simulations` simulated season-total fantasy-point
+        values.
+    """
+    loc, scale = _skewnorm_loc_scale(mean_ppg, sd_ppg, skew)
+    rng = np.random.default_rng(seed)
+    weekly_points = skewnorm.rvs(
+        a=skew,
+        loc=loc,
+        scale=scale,
+        size=(n_simulations, games),
+        random_state=rng,
+    )
+    return np.asarray(weekly_points).sum(axis=1)
+
+
+@lru_cache(maxsize=_CACHE_MAXSIZE)
+def _simulate_player_season_cached(
+    mean_ppg: float,
+    sd_ppg: float,
+    skew: float,
+    games: int,
+    n_simulations: int,
+    seed: int,
+) -> np.ndarray:
+    """:func:`_simulate_player_season`, memoized -- only ever called with a
+    real integer ``seed``, never ``None``. See the module docstring's
+    "Memoization" note for why that split matters."""
+    return _simulate_player_season(mean_ppg, sd_ppg, skew, games, n_simulations, seed)
+
+
 def simulate_player_season(
     mean_ppg: float,
     sd_ppg: float,
@@ -114,6 +186,12 @@ def simulate_player_season(
     parameters do not equal the target mean/sd once ``skew`` is nonzero. A
     season total is the sum of ``games`` independent weekly draws.
 
+    **Memoized when ``seed`` is given** (issue #151): a repeat call with the
+    exact same arguments returns a cached result instead of redrawing 10,000
+    (by default) random seasons. A call with ``seed=None`` is never cached —
+    see the module docstring — and always draws fresh entropy, matching this
+    function's behavior before memoization was added.
+
     Args:
         mean_ppg: Target mean weekly fantasy points.
         sd_ppg: Target standard deviation of weekly fantasy points. Must be
@@ -127,11 +205,12 @@ def simulate_player_season(
         n_simulations: Number of simulated seasons to draw.
         seed: Seed for `numpy.random.default_rng`. The same seed produces
             byte-identical output across calls; `None` draws fresh entropy
-            each call.
+            each call and is never cached.
 
     Returns:
         A 1-D array of `n_simulations` simulated season-total fantasy-point
-        values.
+        values. Always a fresh array, never a reference a caller could
+        mutate to corrupt a future cache hit.
 
     Raises:
         ValueError: If `sd_ppg` is not positive. A season with zero variance
@@ -145,16 +224,13 @@ def simulate_player_season(
             "simulate."
         )
 
-    loc, scale = _skewnorm_loc_scale(mean_ppg, sd_ppg, skew)
-    rng = np.random.default_rng(seed)
-    weekly_points = skewnorm.rvs(
-        a=skew,
-        loc=loc,
-        scale=scale,
-        size=(n_simulations, games),
-        random_state=rng,
-    )
-    return np.asarray(weekly_points).sum(axis=1)
+    if seed is None:
+        return _simulate_player_season(
+            mean_ppg, sd_ppg, skew, games, n_simulations, seed
+        )
+    return _simulate_player_season_cached(
+        mean_ppg, sd_ppg, skew, games, n_simulations, seed
+    ).copy()
 
 
 def summarize_distribution(
