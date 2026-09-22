@@ -104,6 +104,81 @@ def test_score_extremes_includes_a_bye_week_with_no_opponent():
     assert highest["opponent"] is None
 
 
+def test_score_extremes_ignores_a_not_yet_played_week():
+    """Issue #172: a future week where Sleeper's placeholder has everyone at
+    0.0 must never win "lowest score" over a real, played week."""
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 70.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 50.0,
+            },
+            # Week 3 hasn't been played yet -- Sleeper's placeholder.
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 3,
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 0.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 3,
+                "roster_id": 2,
+                "matchup_id": 2,
+                "points": 0.0,
+            },
+        ]
+    )
+
+    result = {
+        row["kind"]: row
+        for row in score_extremes(matchups, STANDINGS).iter_rows(named=True)
+    }
+
+    assert result["lowest"]["week"] == 1
+    assert result["lowest"]["points"] == 50.0
+
+
+def test_score_extremes_all_weeks_unplayed_returns_nothing():
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 3,
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 0.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 3,
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 0.0,
+            },
+        ]
+    )
+
+    assert score_extremes(matchups, STANDINGS).height == 0
+
+
 def test_score_extremes_empty_input():
     assert score_extremes(_matchups([]), STANDINGS).height == 0
 
