@@ -10,13 +10,24 @@ Manager identity is ``sleeper_standings.display_name``, the same
 cross-season-identity posture every other multi-season aggregate in this
 project accepts (:mod:`nuclearff.sleeper.trades`, :mod:`nuclearff.archive
 .champions`): true so far for this league, not guaranteed stable by Sleeper.
+
+**Not-yet-played weeks (issue #172).** :func:`score_extremes` reads
+``sleeper_matchups`` directly rather than through
+:func:`~nuclearff.sleeper.wins.paired_weekly_matchups`, so it applies
+:func:`~nuclearff.sleeper.wins.drop_unplayed_weeks` itself -- otherwise a
+season still in progress always "wins" the all-time lowest-score record
+with a future week's ``0.0`` placeholder, one no manager has actually
+scored. See that function's docstring for why ``0.0`` is the signal.
+:func:`margin_extremes` needs no equivalent change: it already builds on
+:func:`~nuclearff.sleeper.wins.paired_weekly_matchups`, which filters this
+out itself.
 """
 
 from __future__ import annotations
 
 import polars as pl
 
-from nuclearff.sleeper.wins import paired_weekly_matchups
+from nuclearff.sleeper.wins import drop_unplayed_weeks, paired_weekly_matchups
 
 _SCORE_SCHEMA = {
     "kind": pl.String,
@@ -67,7 +78,13 @@ def score_extremes(matchups: pl.DataFrame, standings: pl.DataFrame) -> pl.DataFr
         Two rows (``kind == "highest"``/``"lowest"``): ``manager``,
         ``season``, ``week``, ``points``, ``opponent`` (``None`` for a bye
         week). Empty if ``matchups`` has no rows with a resolvable manager.
+        A week that hasn't been played yet (:func:`~nuclearff.sleeper.wins
+        .drop_unplayed_weeks`) never wins either extreme.
     """
+    if matchups.height == 0:
+        return pl.DataFrame(schema=_SCORE_SCHEMA)
+
+    matchups = drop_unplayed_weeks(matchups)
     if matchups.height == 0:
         return pl.DataFrame(schema=_SCORE_SCHEMA)
 
