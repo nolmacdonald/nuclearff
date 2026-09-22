@@ -484,9 +484,7 @@ def fetch_and_write_standings(
 
         if league.get("status") == "complete" and league_id in cached_league_ids:
             standings.extend(
-                existing_standings.filter(
-                    pl.col("league_id") == league_id
-                ).to_dicts()
+                existing_standings.filter(pl.col("league_id") == league_id).to_dicts()
             )
             matches.extend(
                 existing_matches.filter(pl.col("league_id") == league_id).to_dicts()

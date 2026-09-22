@@ -214,9 +214,7 @@ def test_fetch_and_write_matchups_keeps_cached_row_when_a_refetch_fails(
 
     responses.calls.reset()
     for _ in range(5):
-        responses.get(
-            f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", status=500
-        )
+        responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", status=500)
     count = fetch_and_write_matchups(client, [league], db_path, max_week=1)
 
     assert count == 2
