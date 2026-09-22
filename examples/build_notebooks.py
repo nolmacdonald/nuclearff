@@ -190,7 +190,7 @@ ch01 = nb(
             "player_stats = nfl.load_player_stats([2023, 2024])\n"
             "player_stats.select(\n"
             '    ["player_display_name", "season", "week", "position", "fantasy_points"]\n'
-            ").head(5)"
+            ").head(10)"
         ),
         md(
             "That real query returns tens of thousands of player-week rows "
@@ -1177,7 +1177,7 @@ ch06 = nb(
             "df = expected_tds(receiving, opportunity)\n\n"
             'df.filter(pl.col("expected_tds").is_not_null()).sort("td_regression").select(\n'
             '    ["player_display_name", "position", "receiving_tds", "expected_tds", "td_regression"]\n'
-            ").head(5)"
+            ").head(10)"
         ),
         md(
             'Negative `td_regression` is the "TD-unlucky" list -- a '
@@ -1831,7 +1831,7 @@ ch10 = nb(
             'all_picks = read_table(db_path, "sleeper_draft_picks")\n'
             'all_standings = read_table(db_path, "sleeper_standings")\n'
             "stats = draft_order_stats(all_picks, all_standings)\n"
-            'stats.sort("avg_draft_position").head(5)'
+            'stats.sort("avg_draft_position").head(10)'
         ),
         md(
             "By default (as with `report trades`/`report wins` in later "
