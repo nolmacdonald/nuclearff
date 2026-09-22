@@ -718,6 +718,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pattern was also fixed to `**/configs/leagues/`: the un-prefixed form has a
   slash in the middle, so it was anchored to the repo root and silently
   missed `--root`'d copies like `examples/demo/configs/leagues/`.
+- `examples/` rebuilt to 18 notebooks, one per `docs/source/tutorial/`
+  chapter and numbered to match (GitHub Issue 178) — the docs were rewritten
+  into that 18-chapter, Python-first tutorial (PR #142) after the original
+  3-notebook set above shipped, leaving `examples/README.md` pointing at
+  dead doc URLs and 15 chapters with no notebook coverage at all (`report
+  user-leagues`/`wins`/`draft-order`/`performance`/`season-performance`,
+  all of `archive/`, and auction/keeper valuation among them). Notebooks 1
+  through 17 call the library directly, matching each chapter's own code
+  blocks, with additional Markdown discussion beyond what the docs page
+  itself says; only Chapter 18 (CLI Reference) shells out to `nuclearff`.
+  `examples/build_notebooks.py` extended accordingly; every notebook is
+  still actually executed, in chapter order, against the real
+  `NUCLEARFF REDRAFT` league (plus the same two other real leagues on the
+  same account Chapters 9-10 already used) rather than invented output.
+  Three real bugs surfaced and fixed while executing the new notebooks
+  end to end, none previously caught because the docs' own code blocks are
+  illustrative and were never executed as one continuous script the way a
+  notebook is: (1) a `duckdb.connect(..., read_only=True)` left open across
+  cells blocks a later `merge_table` write to the same file with
+  `ConnectionException: ... different configuration` — every multi-query
+  section now reconnects fresh per query, matching the existing
+  `01_user_guide.ipynb` convention; (2) `pairwise_trade_matrix` is dense
+  only over managers who appear in `edges`, not the full roster, so
+  selecting the full `all_managers` column set on a league where several
+  managers never traded raised `ColumnNotFoundError` — fixed by densifying
+  missing columns (not just rows) before selecting; (3) the "Team name
+  history" chapter read `sleeper_roster_names` without ever calling
+  `fetch_and_write_team_names` first. `.gitignore` gained
+  `examples/demo/configs/nuclearff.yaml`: the new notebooks' own
+  `dump_config(cfg, "./demo/configs/nuclearff.yaml")` cell writes a path
+  neither the existing bare `data/` pattern nor `**/configs/leagues/`
+  covers.
 
 ### Changed
 
