@@ -39,6 +39,14 @@ skips the four live calls entirely for a league whose raw ``status`` is
 :data:`STANDINGS_TABLE_NAME` and :data:`MATCHES_TABLE_NAME` — reusing the
 already-cached rows instead. A league that is not yet complete, or has
 never been fetched before, is always fetched live.
+
+**Avatar caching (issue #150).** ``users`` (already fetched here, for
+``display_name``) also carries each manager's raw ``avatar`` id, but
+nothing persisted it before this -- forcing report code that wants a
+manager's avatar (e.g. ``report wins``) to make a live
+:meth:`SleeperClient.get_user` call per manager, per render, for data this
+function already has in hand for free. :func:`fetch_and_write_standings`
+now also writes :data:`AVATARS_TABLE_NAME`, no new Sleeper calls needed.
 """
 
 from __future__ import annotations
@@ -128,6 +136,26 @@ CREATE TABLE IF NOT EXISTS {table} (
     t1_from JSON,
     t2_from JSON,
     PRIMARY KEY (league_id, bracket, match)
+)
+"""
+
+AVATARS_TABLE_NAME = "sleeper_user_avatars"
+"""Default table name for per-season manager avatar ids.
+
+Used by :func:`fetch_and_write_standings`. A sibling table, not a column
+on :data:`STANDINGS_TABLE_NAME` -- the "new sibling table, not a schema
+migration onto an already-shipped table" convention this project already
+uses (see :mod:`nuclearff.sleeper.roster_names`)."""
+
+_AVATARS_COLUMNS = ("league_id", "season", "owner_id", "avatar")
+
+_AVATARS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS {table} (
+    league_id VARCHAR,
+    season INTEGER,
+    owner_id VARCHAR,
+    avatar VARCHAR,
+    PRIMARY KEY (league_id, owner_id)
 )
 """
 
@@ -386,6 +414,41 @@ def bracket_match_rows(
     return rows
 
 
+def user_avatar_rows(
+    league_id: str, season: int | None, users: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Build :data:`AVATARS_TABLE_NAME` rows from an already-fetched user list.
+
+    Args:
+        league_id: The season's Sleeper league identifier.
+        season: The season year.
+        users: Raw user objects, as returned by :meth:`SleeperClient.get_users`
+            -- the same list already fetched for :func:`roster_display_names`,
+            no new Sleeper call needed.
+
+    Returns:
+        One row per user with a real ``user_id``. ``avatar`` is Sleeper's
+        raw avatar id (``None`` for a user with no avatar set), the same
+        value :meth:`SleeperClient.avatar_url` already expects.
+    """
+    rows: list[dict[str, Any]] = []
+    for user in users:
+        if not isinstance(user, dict):
+            continue
+        owner_id = user.get("user_id")
+        if not isinstance(owner_id, str):
+            continue
+        rows.append(
+            {
+                "league_id": league_id,
+                "season": season,
+                "owner_id": owner_id,
+                "avatar": user.get("avatar"),
+            }
+        )
+    return rows
+
+
 def _read_existing(db_path: str | Path, table_name: str) -> pl.DataFrame:
     """Read already-cached rows for ``table_name``, tolerating a first-ever run.
 
@@ -411,6 +474,7 @@ def fetch_and_write_standings(
     *,
     table_name: str = STANDINGS_TABLE_NAME,
     matches_table_name: str = MATCHES_TABLE_NAME,
+    avatars_table_name: str = AVATARS_TABLE_NAME,
 ) -> tuple[int, int]:
     """Fetch rosters/users/brackets for every league in a chain and persist standings.
 
@@ -443,12 +507,17 @@ def fetch_and_write_standings(
         db_path: Path to the DuckDB database file, created if absent.
         table_name: Destination table for standings.
         matches_table_name: Destination table for raw playoff matches.
+        avatars_table_name: Destination table for manager avatar ids (see
+            the module docstring's "Avatar caching" note).
 
     Returns:
-        A ``(standings_rows_written, match_rows_written)`` tuple.
+        A ``(standings_rows_written, match_rows_written)`` tuple. Avatar
+        rows are written too, logged but not returned -- a purely additive
+        side effect, not part of this function's existing contract.
     """
     existing_standings = _read_existing(db_path, table_name)
     existing_matches = _read_existing(db_path, matches_table_name)
+    existing_avatars = _read_existing(db_path, avatars_table_name)
     cached_league_ids = (
         set(existing_standings["league_id"].to_list())
         & set(existing_matches["league_id"].to_list())
@@ -477,6 +546,7 @@ def fetch_and_write_standings(
 
     standings: list[dict[str, Any]] = []
     matches: list[dict[str, Any]] = []
+    avatars: list[dict[str, Any]] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
@@ -489,6 +559,10 @@ def fetch_and_write_standings(
             matches.extend(
                 existing_matches.filter(pl.col("league_id") == league_id).to_dicts()
             )
+            if existing_avatars.height:
+                avatars.extend(
+                    existing_avatars.filter(pl.col("league_id") == league_id).to_dicts()
+                )
             continue
 
         chopped = is_chopped_league(league)
@@ -523,6 +597,7 @@ def fetch_and_write_standings(
             bracket_match_rows(league_id, season, "winners", winners_bracket)
         )
         matches.extend(bracket_match_rows(league_id, season, "losers", losers_bracket))
+        avatars.extend(user_avatar_rows(league_id, season, users))
 
     league_ids = [str(league["league_id"]) for league in leagues]
     standings_count = merge_table(
@@ -543,11 +618,21 @@ def fetch_and_write_standings(
         key_column="league_id",
         key_values=league_ids,
     )
+    avatars_count = merge_table(
+        db_path,
+        avatars_table_name,
+        _AVATARS_CREATE_TABLE_SQL,
+        _AVATARS_COLUMNS,
+        [[row[column] for column in _AVATARS_COLUMNS] for row in avatars],
+        key_column="league_id",
+        key_values=league_ids,
+    )
 
     logger.info(
-        "Wrote %d standings row(s) and %d playoff match row(s) to %s",
+        "Wrote %d standings, %d playoff match, and %d avatar row(s) to %s",
         standings_count,
         matches_count,
+        avatars_count,
         db_path,
     )
     return standings_count, matches_count

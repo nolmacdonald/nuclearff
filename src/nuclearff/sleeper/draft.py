@@ -129,6 +129,7 @@ def fetch_and_write_draft_picks(
     db_path: str | Path,
     *,
     table_name: str = TABLE_NAME,
+    draft: dict[str, Any] | None = None,
 ) -> int:
     """Fetch a draft and its picks, and persist the picks to DuckDB.
 
@@ -146,13 +147,18 @@ def fetch_and_write_draft_picks(
         draft_id: Sleeper draft identifier.
         db_path: Path to the DuckDB database file, created if absent.
         table_name: Destination table.
+        draft: The raw draft object, if a caller already fetched it for its
+            own purposes (e.g. ``report draft-board`` needs ``settings``/
+            ``draft_order`` regardless). Passing it here avoids fetching
+            the same draft live a second time; omit it to fetch it fresh.
 
     Returns:
         The number of pick rows written. ``0`` before any pick has been
         made, which is valid data (a draft that hasn't started yet), not an
         error.
     """
-    draft = client.get_draft(draft_id)
+    if draft is None:
+        draft = client.get_draft(draft_id)
     picks = client.get_draft_picks(draft_id)
     rows = draft_pick_rows(draft, picks)
 
