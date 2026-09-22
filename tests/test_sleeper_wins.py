@@ -7,6 +7,7 @@ import pytest
 
 from nuclearff.sleeper.wins import (
     cumulative_wins,
+    drop_unplayed_weeks,
     paired_weekly_matchups,
     weekly_results,
 )
@@ -84,6 +85,135 @@ def test_paired_weekly_matchups_skips_a_bye_week():
 
 def test_paired_weekly_matchups_handles_no_matchups():
     assert paired_weekly_matchups(_matchups([])).height == 0
+
+
+def test_paired_weekly_matchups_drops_a_not_yet_played_week():
+    """Issue #171: a future week where Sleeper's placeholder has every roster
+    at 0.0 must not pair up into a phantom 0-0 tie."""
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 15,
+                "roster_id": 1,
+                "matchup_id": 4,
+                "points": 0.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 15,
+                "roster_id": 2,
+                "matchup_id": 4,
+                "points": 0.0,
+            },
+        ]
+    )
+
+    assert paired_weekly_matchups(matchups).height == 0
+
+
+# --- drop_unplayed_weeks -----------------------------------------------------
+
+
+def test_drop_unplayed_weeks_removes_a_week_where_everyone_scored_zero():
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 3,
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 0.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 3,
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 0.0,
+            },
+        ]
+    )
+
+    assert drop_unplayed_weeks(matchups).height == 0
+
+
+def test_drop_unplayed_weeks_keeps_a_real_zero_for_zero_tie():
+    """A tie with real (nonzero) points on the board elsewhere in the same
+    week must not be swept up with the unplayed weeks."""
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 100.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2025,
+                "week": 1,
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 100.0,
+            },
+        ]
+    )
+
+    assert drop_unplayed_weeks(matchups).height == 2
+
+
+def test_drop_unplayed_weeks_keeps_other_weeks_in_the_same_league():
+    matchups = _matchups(
+        [
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 1,
+                "roster_id": 1,
+                "matchup_id": 1,
+                "points": 120.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 1,
+                "roster_id": 2,
+                "matchup_id": 1,
+                "points": 90.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 3,
+                "roster_id": 1,
+                "matchup_id": 2,
+                "points": 0.0,
+            },
+            {
+                "league_id": "L1",
+                "season": 2026,
+                "week": 3,
+                "roster_id": 2,
+                "matchup_id": 2,
+                "points": 0.0,
+            },
+        ]
+    )
+
+    remaining = drop_unplayed_weeks(matchups)
+
+    assert remaining["week"].to_list() == [1, 1]
+
+
+def test_drop_unplayed_weeks_handles_no_matchups():
+    assert drop_unplayed_weeks(_matchups([])).height == 0
 
 
 def test_weekly_results_is_derived_from_the_same_pairing_as_margins():

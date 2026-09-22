@@ -370,3 +370,42 @@ def test_head_to_head_by_phase_empty_input():
     league_configs = _league_configs([{"league_id": "L1", "playoff_week_start": 15}])
 
     assert head_to_head_by_phase(_matchups([]), STANDINGS, league_configs).height == 0
+
+
+def test_head_to_head_by_phase_ignores_a_not_yet_played_playoff_week():
+    """Issue #171: a future playoff week where Sleeper's placeholder reads
+    everyone at 0.0 must not show up as a 0-0 tie in the playoff phase."""
+    matchups = pl.concat(
+        [
+            _phase_matchups(),
+            _matchups(
+                [
+                    {
+                        "league_id": "L1",
+                        "season": 2025,
+                        "week": 17,
+                        "roster_id": 1,
+                        "matchup_id": 4,
+                        "points": 0.0,
+                    },
+                    {
+                        "league_id": "L1",
+                        "season": 2025,
+                        "week": 17,
+                        "roster_id": 2,
+                        "matchup_id": 4,
+                        "points": 0.0,
+                    },
+                ]
+            ),
+        ]
+    )
+    league_configs = _league_configs([{"league_id": "L1", "playoff_week_start": 15}])
+
+    playoff = head_to_head_by_phase(matchups, STANDINGS, league_configs).filter(
+        pl.col("phase") == PHASE_PLAYOFF
+    )
+
+    row = playoff.row(0, named=True)
+    assert row["games"] == 1
+    assert row["ties"] == 0
