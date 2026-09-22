@@ -14,6 +14,17 @@ needed to keep going); a hop that fetches but fails to type into
 ``LeagueConfig`` keeps its raw row and simply has no config row. Neither
 aborts the whole walk — see :func:`walk_league_chain` and
 :func:`league_config_rows`.
+
+**Incremental fetch (issue #180, a follow-up to #148).** A completed
+season's league object cannot change, so :func:`walk_league_chain` accepts
+an optional ``db_path``: when given, a hop already cached in
+:data:`TABLE_NAME` with ``status == "complete"`` is reconstructed from that
+row instead of an extra live :meth:`SleeperClient.get_league` call. The raw
+table doesn't carry ``draft_id`` (it's only parsed onto
+:data:`CONFIG_TABLE_NAME`), so the reconstruction joins against that table
+for it — see :func:`_load_cached_hops` and :func:`_reconstruct_hop`.
+``db_path=None`` (the default) preserves the always-live behavior exactly,
+so no existing caller is affected unless it opts in.
 """
 
 from __future__ import annotations
@@ -27,8 +38,8 @@ from typing import Any
 import polars as pl
 
 from nuclearff.config.league import league_config_from_sleeper
-from nuclearff.duckdb_io import merge_table
-from nuclearff.exceptions import ConfigError, SleeperAPIError
+from nuclearff.duckdb_io import merge_table, read_table
+from nuclearff.exceptions import ConfigError, SleeperAPIError, StorageError
 from nuclearff.sleeper.client import SleeperClient
 
 logger = logging.getLogger(__name__)
@@ -196,11 +207,98 @@ def _chain_previous_league_id(league_json: dict[str, Any]) -> str | None:
     return text if text and text != "0" else None
 
 
+def _load_cached_hops(
+    db_path: str | Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str | None]]:
+    """Load cached league rows and draft ids for incremental chain walking.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+
+    Returns:
+        ``(cached_rows, draft_ids)`` — ``cached_rows`` maps ``league_id`` to
+        its cached :data:`TABLE_NAME` row, ``draft_ids`` maps ``league_id``
+        to its cached :data:`CONFIG_TABLE_NAME` ``draft_id`` (absent if that
+        league has no parsed config row). Both are empty on a first-ever run
+        (no database file or table yet).
+    """
+    try:
+        raw = read_table(db_path, TABLE_NAME)
+    except StorageError:
+        return {}, {}
+    cached_rows = {row["league_id"]: row for row in raw.to_dicts()}
+
+    try:
+        configs = read_table(db_path, CONFIG_TABLE_NAME)
+    except StorageError:
+        return cached_rows, {}
+    draft_ids = {row["league_id"]: row.get("draft_id") for row in configs.to_dicts()}
+
+    return cached_rows, draft_ids
+
+
+def _reconstruct_hop(row: dict[str, Any], draft_id: str | None) -> dict[str, Any]:
+    """Rebuild a live-shaped league payload from a cached :data:`TABLE_NAME` row.
+
+    Args:
+        row: A cached :data:`TABLE_NAME` row, as returned by
+            :func:`nuclearff.duckdb_io.read_table` (JSON columns as text).
+        draft_id: The league's cached ``draft_id``, from
+            :data:`CONFIG_TABLE_NAME` — not stored on the raw row itself
+            (see the module docstring).
+
+    Returns:
+        A dict shaped like :meth:`SleeperClient.get_league`'s return value —
+        enough for every downstream consumer of a chain hop
+        (:func:`write_league_tables`,
+        :func:`nuclearff.config.league.league_config_from_sleeper`, and
+        every ``fetch_and_write_*`` function, which only read
+        ``league_id``/``season``/``status`` off a hop).
+    """
+    return {
+        "league_id": row["league_id"],
+        "previous_league_id": row.get("previous_league_id"),
+        "season": row.get("season"),
+        "name": row.get("name"),
+        "status": row.get("status"),
+        "total_rosters": row.get("total_rosters"),
+        "settings": json.loads(row.get("settings") or "{}"),
+        "scoring_settings": json.loads(row.get("scoring_settings") or "{}"),
+        "roster_positions": json.loads(row.get("roster_positions") or "[]"),
+        "draft_id": draft_id,
+    }
+
+
+def _cached_hop(
+    hop_id: str,
+    cached_rows: dict[str, dict[str, Any]],
+    draft_ids: dict[str, str | None],
+) -> dict[str, Any] | None:
+    """Return a reconstructed payload for ``hop_id`` if it's safely reusable.
+
+    Args:
+        hop_id: The league ID this hop needs.
+        cached_rows: From :func:`_load_cached_hops`.
+        draft_ids: From :func:`_load_cached_hops`.
+
+    Returns:
+        A reconstructed payload (:func:`_reconstruct_hop`) if ``hop_id`` is
+        cached with ``status == "complete"`` — a finished season's payload
+        cannot change — otherwise ``None``, meaning the caller must fetch it
+        live.
+    """
+    row = cached_rows.get(hop_id)
+    if row is None or row.get("status") != "complete":
+        return None
+    return _reconstruct_hop(row, draft_ids.get(hop_id))
+
+
 def walk_league_chain(
     client: SleeperClient,
     league_id: str,
     *,
     max_seasons: int = DEFAULT_MAX_SEASONS,
+    db_path: str | Path | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch a league and every prior season reachable via ``previous_league_id``.
 
@@ -209,17 +307,33 @@ def walk_league_chain(
         league_id: The starting (most recent) league identifier.
         max_seasons: Maximum number of hops to fetch, including the starting
             league. Guards against an unexpectedly long or malformed chain.
+        db_path: Path to the DuckDB database file to consult for already-
+            cached, completed hops (see the module docstring's "Incremental
+            fetch" note). Omit (or pass ``None``, the default) to always
+            fetch every hop live, unchanged from this function's original
+            behavior.
 
     Returns:
         Raw league payloads, most recent season first, in fetch order. Always
-        has at least one entry.
+        has at least one entry. A payload reused from cache instead of fetched
+        live is reconstructed (see :func:`_reconstruct_hop`), not the exact
+        object Sleeper would return, but equivalent for every field this
+        project reads off a league payload.
 
     Raises:
-        SleeperAPIError: If the starting league itself cannot be fetched. A
-            failure on a later hop is logged and stops the walk instead of
-            raising — see the module docstring.
+        SleeperAPIError: If the starting league itself cannot be fetched and
+            is not already cached as complete. A failure on a later hop is
+            logged and stops the walk instead of raising — see the module
+            docstring.
     """
-    leagues: list[dict[str, Any]] = [client.get_league(league_id)]
+    cached_rows, draft_ids = (
+        _load_cached_hops(db_path) if db_path is not None else ({}, {})
+    )
+
+    first = _cached_hop(league_id, cached_rows, draft_ids)
+    leagues: list[dict[str, Any]] = [
+        first if first is not None else client.get_league(league_id)
+    ]
     seen = {league_id}
 
     while len(leagues) < max_seasons:
@@ -233,6 +347,12 @@ def walk_league_chain(
                 next_id,
             )
             break
+
+        cached = _cached_hop(next_id, cached_rows, draft_ids)
+        if cached is not None:
+            leagues.append(cached)
+            seen.add(next_id)
+            continue
 
         try:
             next_league = client.get_league(next_id)
