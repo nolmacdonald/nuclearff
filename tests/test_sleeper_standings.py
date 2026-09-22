@@ -388,6 +388,74 @@ def test_fetch_and_write_standings_round_trips_through_duckdb(client, tmp_path):
     assert bracket_count == len(WINNERS_BRACKET) + len(LOSERS_BRACKET)
 
 
+# --- incremental fetch (issue #148) -----------------------------------------
+
+
+@responses.activate
+def test_fetch_and_write_standings_skips_a_cached_complete_league_entirely(
+    client, tmp_path
+):
+    """A complete season with cached standings + matches makes no live calls
+    on a second run -- not rosters, users, or either bracket."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=WINNERS_BRACKET
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=LOSERS_BRACKET
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "complete"}
+
+    fetch_and_write_standings(client, [league], db_path)
+    assert len(responses.calls) == 4
+
+    responses.calls.reset()
+    standings_count, matches_count = fetch_and_write_standings(
+        client, [league], db_path
+    )
+
+    assert standings_count == 4
+    assert matches_count == len(WINNERS_BRACKET) + len(LOSERS_BRACKET)
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_fetch_and_write_standings_refetches_a_league_that_is_not_yet_complete(
+    client, tmp_path
+):
+    """A season without ``status == "complete"`` is always fetched live,
+    even if it already has cached rows -- its record/bracket can still
+    change."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=WINNERS_BRACKET
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=LOSERS_BRACKET
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "in_season"}
+
+    fetch_and_write_standings(client, [league], db_path)
+
+    responses.calls.reset()
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=ROSTERS)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=USERS)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/winners_bracket", json=WINNERS_BRACKET
+    )
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/losers_bracket", json=LOSERS_BRACKET
+    )
+    standings_count, _ = fetch_and_write_standings(client, [league], db_path)
+
+    assert standings_count == 4
+    assert len(responses.calls) == 4
+
+
 @responses.activate
 def test_fetch_and_write_standings_does_not_erase_another_leagues_rows(
     client, tmp_path

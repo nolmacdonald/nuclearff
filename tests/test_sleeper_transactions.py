@@ -201,6 +201,97 @@ def test_fetch_and_write_transactions_round_trips_through_duckdb(client, tmp_pat
     assert player_row_count == 3
 
 
+# --- incremental fetch (issue #148) -----------------------------------------
+
+
+@responses.activate
+def test_fetch_and_write_transactions_skips_a_fully_cached_complete_season(
+    client, tmp_path
+):
+    """Once every week (1..max_week) of a complete season is cached, a second
+    call makes no live calls at all -- not even rosters/users, since nothing
+    needs their display names resolved this run."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/transactions/1", json=[WAIVER_FAILED]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "complete"}
+
+    fetch_and_write_transactions(client, [league], db_path, max_week=1)
+    assert len(responses.calls) == 3
+
+    responses.calls.reset()
+    transaction_count, _ = fetch_and_write_transactions(
+        client, [league], db_path, max_week=1
+    )
+
+    assert transaction_count == 1
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_fetch_and_write_transactions_refreshes_trailing_weeks_for_an_active_season(
+    client, tmp_path
+):
+    """A not-yet-complete season still refetches its most recent cached weeks
+    (and the rosters/users needed to name them), rather than treating them as
+    settled."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/transactions/1", json=[WAIVER_FAILED]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "in_season"}
+
+    fetch_and_write_transactions(client, [league], db_path, max_week=1)
+
+    responses.calls.reset()
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/transactions/1", json=[WAIVER_FAILED]
+    )
+    transaction_count, _ = fetch_and_write_transactions(
+        client, [league], db_path, max_week=1
+    )
+
+    assert transaction_count == 1
+    assert len(responses.calls) == 3
+
+
+@responses.activate
+def test_fetch_and_write_transactions_keeps_cached_row_when_a_refetch_fails(
+    client, tmp_path
+):
+    """A transient failure while refetching a trailing week must not drop it."""
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=[])
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/transactions/1", json=[WAIVER_FAILED]
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "in_season"}
+
+    fetch_and_write_transactions(client, [league], db_path, max_week=1)
+
+    responses.calls.reset()
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/rosters", json=[])
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/users", json=[])
+    for _ in range(5):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/transactions/1", status=500
+        )
+    transaction_count, player_count = fetch_and_write_transactions(
+        client, [league], db_path, max_week=1
+    )
+
+    assert transaction_count == 1
+    assert player_count == 1
+
+
 @responses.activate
 def test_fetch_and_write_transactions_does_not_erase_another_leagues_rows(
     client, tmp_path

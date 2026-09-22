@@ -11,6 +11,16 @@ Sleeper's own ``type`` (``"trade"`` / ``"waiver"`` / ``"free_agent"``) and
 ``status`` (``"complete"`` / ``"failed"``) fields already categorize a
 transaction — confirmed live against a real league — so this module trusts
 and stores them rather than deriving a category itself.
+
+**Incremental fetch (issue #148).** Same posture as
+:func:`nuclearff.sleeper.matchups.fetch_and_write_matchups`: a week already
+cached for a league whose raw ``status`` is ``"complete"`` cannot gain new
+transactions, so it's never refetched. A not-yet-complete season still
+skips its older cached weeks but always refetches the most recent
+``trailing_refresh_weeks`` of them plus any week never fetched, since a
+transaction can still be processed into a recent round. The rosters/users
+lookup this module needs to resolve display names is itself skipped
+entirely for a league with nothing left to fetch.
 """
 
 from __future__ import annotations
@@ -21,10 +31,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import merge_table
-from nuclearff.exceptions import SleeperAPIError
+import polars as pl
+
+from nuclearff.duckdb_io import merge_table, read_table
+from nuclearff.exceptions import SleeperAPIError, StorageError
 from nuclearff.sleeper.client import SleeperClient
-from nuclearff.sleeper.matchups import DEFAULT_MAX_WEEK
+from nuclearff.sleeper.matchups import (
+    DEFAULT_MAX_WEEK,
+    DEFAULT_TRAILING_REFRESH_WEEKS,
+    weeks_to_fetch,
+)
 from nuclearff.sleeper.standings import roster_display_names
 
 logger = logging.getLogger(__name__)
@@ -233,6 +249,60 @@ def transaction_player_rows(
     return rows
 
 
+_EXISTING_TRANSACTION_SCHEMA = {
+    "transaction_id": pl.String,
+    "league_id": pl.String,
+    "season": pl.Int64,
+    "week": pl.Int64,
+    "type": pl.String,
+    "status": pl.String,
+    "creator": pl.String,
+    "creator_display_name": pl.String,
+    "roster_ids": pl.String,
+    "roster_display_names": pl.String,
+    "consenter_ids": pl.String,
+    "consenter_display_names": pl.String,
+    "created_at": pl.Datetime,
+    "status_updated_at": pl.Datetime,
+    "adds": pl.String,
+    "drops": pl.String,
+    "draft_picks": pl.String,
+    "waiver_budget": pl.String,
+    "settings": pl.String,
+    "metadata": pl.String,
+}
+
+_EXISTING_PLAYER_SCHEMA = {
+    "transaction_id": pl.String,
+    "league_id": pl.String,
+    "season": pl.Int64,
+    "week": pl.Int64,
+    "player_id": pl.String,
+    "roster_id": pl.Int64,
+    "direction": pl.String,
+}
+
+
+def _read_existing(
+    db_path: str | Path, table_name: str, schema: dict[str, Any]
+) -> pl.DataFrame:
+    """Read already-cached rows, tolerating a first-ever run.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table to read.
+        schema: Fallback column schema if the table doesn't exist yet.
+
+    Returns:
+        The table's rows, or an empty frame with ``schema`` if the database
+        file or the table doesn't exist yet.
+    """
+    try:
+        return read_table(db_path, table_name)
+    except StorageError:
+        return pl.DataFrame(schema=schema)
+
+
 def fetch_and_write_transactions(
     client: SleeperClient,
     leagues: list[dict[str, Any]],
@@ -241,12 +311,16 @@ def fetch_and_write_transactions(
     max_week: int = DEFAULT_MAX_WEEK,
     table_name: str = TABLE_NAME,
     players_table_name: str = PLAYERS_TABLE_NAME,
+    trailing_refresh_weeks: int = DEFAULT_TRAILING_REFRESH_WEEKS,
 ) -> tuple[int, int]:
     """Fetch every week's transactions for every league in a chain and persist them.
 
-    A week that fails to fetch is logged and skipped; it does not abort the
-    rest of the season or the walk, matching
-    :func:`nuclearff.sleeper.matchups.fetch_and_write_matchups`'s posture.
+    **Incremental** (issue #148): a week already cached for a league whose
+    ``status`` is ``"complete"`` is never refetched — see the module
+    docstring. When a league has nothing left to fetch, the rosters/users
+    lookup used to resolve display names is skipped too. A week that fails
+    to fetch live keeps whatever was already cached for it, rather than
+    losing that data to a transient error.
 
     Only replaces rows for the league_ids in ``leagues`` (via
     :func:`nuclearff.duckdb_io.merge_table`) -- every other league already
@@ -262,16 +336,65 @@ def fetch_and_write_transactions(
         max_week: Maximum week number to fetch per season.
         table_name: Destination table for transactions.
         players_table_name: Destination table for unnested add/drop rows.
+        trailing_refresh_weeks: For a not-yet-complete season, how many of
+            its most recently cached weeks to always refetch live, even
+            though they were already cached.
 
     Returns:
         A ``(transaction_rows_written, player_rows_written)`` tuple.
     """
+    existing_transactions = _read_existing(
+        db_path, table_name, _EXISTING_TRANSACTION_SCHEMA
+    )
+    existing_players = _read_existing(
+        db_path, players_table_name, _EXISTING_PLAYER_SCHEMA
+    )
+
     transactions_out: list[dict[str, Any]] = []
     players_out: list[dict[str, Any]] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
         season = int(league["season"]) if league.get("season") else None
+        is_complete = league.get("status") == "complete"
+
+        league_existing_tx = (
+            existing_transactions.filter(pl.col("league_id") == league_id)
+            if existing_transactions.height
+            else existing_transactions
+        )
+        league_existing_players = (
+            existing_players.filter(pl.col("league_id") == league_id)
+            if existing_players.height
+            else existing_players
+        )
+        cached_weeks = (
+            set(league_existing_tx["week"].to_list())
+            if league_existing_tx.height
+            else set()
+        )
+        weeks_needed = weeks_to_fetch(
+            cached_weeks,
+            max_week=max_week,
+            is_complete=is_complete,
+            trailing_refresh_weeks=trailing_refresh_weeks,
+        )
+
+        if league_existing_tx.height:
+            transactions_out.extend(
+                league_existing_tx.filter(
+                    ~pl.col("week").is_in(sorted(weeks_needed))
+                ).to_dicts()
+            )
+        if league_existing_players.height:
+            players_out.extend(
+                league_existing_players.filter(
+                    ~pl.col("week").is_in(sorted(weeks_needed))
+                ).to_dicts()
+            )
+
+        if not weeks_needed:
+            continue
 
         try:
             rosters = client.get_rosters(league_id)
@@ -284,7 +407,7 @@ def fetch_and_write_transactions(
         roster_names = roster_display_names(rosters, users)
         user_names = _user_display_names(users)
 
-        for week in range(1, max_week + 1):
+        for week in sorted(weeks_needed):
             try:
                 week_transactions = client.get_transactions(league_id, week)
             except SleeperAPIError as exc:
@@ -294,6 +417,16 @@ def fetch_and_write_transactions(
                     week,
                     exc,
                 )
+                if league_existing_tx.height:
+                    transactions_out.extend(
+                        league_existing_tx.filter(pl.col("week") == week).to_dicts()
+                    )
+                if league_existing_players.height:
+                    players_out.extend(
+                        league_existing_players.filter(
+                            pl.col("week") == week
+                        ).to_dicts()
+                    )
                 continue
             if not week_transactions:
                 continue

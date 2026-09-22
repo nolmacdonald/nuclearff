@@ -9,6 +9,23 @@ following the same plain-SQL DuckDB pattern as
 
 A week with no matchups yet (in-progress or future season) returns an empty
 list from Sleeper, not an error — that's valid data, not a failure.
+
+**Incremental fetch (issue #148).** A completed season's weeks cannot
+change, so :func:`fetch_and_write_matchups` skips re-fetching any week
+already persisted for a league whose raw payload reports
+``status == "complete"``. A season that is not yet complete still skips
+its older cached weeks, but always refetches the most recent
+``trailing_refresh_weeks`` of them (Sleeper stat corrections land there)
+plus any week never fetched at all. Weeks that are skipped keep their
+already-cached row(s) rather than being dropped — :func:`merge_table`
+replaces *all* of a league's rows on every call, so a skipped week's rows
+must be re-supplied from the cache, not simply omitted.
+
+A week with no matchups leaves no cached row at all (see above), so a
+"complete" season's weeks past its real end are always re-probed on every
+call — a small, bounded cost (at most ``max_week`` minus the season's real
+length) rather than a growing one, since no row is ever written for them
+either way.
 """
 
 from __future__ import annotations
@@ -18,8 +35,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import merge_table
-from nuclearff.exceptions import SleeperAPIError
+import polars as pl
+
+from nuclearff.duckdb_io import merge_table, read_table
+from nuclearff.exceptions import SleeperAPIError, StorageError
 from nuclearff.sleeper.client import SleeperClient
 
 logger = logging.getLogger(__name__)
@@ -29,6 +48,10 @@ TABLE_NAME = "sleeper_matchups"
 
 DEFAULT_MAX_WEEK = 18
 """Default cap on weeks fetched per season (a full NFL regular + postseason)."""
+
+DEFAULT_TRAILING_REFRESH_WEEKS = 2
+"""Default number of a not-yet-complete season's most recent cached weeks to
+always refetch (stat corrections), even though they were already cached."""
 
 _COLUMNS = (
     "league_id",
@@ -97,6 +120,68 @@ def matchup_rows(
     return rows
 
 
+_EXISTING_SCHEMA = {
+    "league_id": pl.String,
+    "season": pl.Int64,
+    "week": pl.Int64,
+    "roster_id": pl.Int64,
+    "matchup_id": pl.Int64,
+    "points": pl.Float64,
+    "custom_points": pl.Float64,
+    "players": pl.String,
+    "starters": pl.String,
+    "starters_points": pl.String,
+    "players_points": pl.String,
+}
+
+
+def _read_existing(db_path: str | Path, table_name: str) -> pl.DataFrame:
+    """Read already-cached :data:`TABLE_NAME` rows, tolerating a first-ever run.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table to read.
+
+    Returns:
+        The table's rows, or an empty frame with the expected schema if the
+        database file or the table doesn't exist yet.
+    """
+    try:
+        return read_table(db_path, table_name)
+    except StorageError:
+        return pl.DataFrame(schema=_EXISTING_SCHEMA)
+
+
+def weeks_to_fetch(
+    cached_weeks: set[int],
+    *,
+    max_week: int,
+    is_complete: bool,
+    trailing_refresh_weeks: int,
+) -> set[int]:
+    """Decide which weeks need a live Sleeper call this run.
+
+    Args:
+        cached_weeks: Weeks already persisted for this league.
+        max_week: Maximum week number to consider.
+        is_complete: Whether the league's raw ``status`` reads ``"complete"``.
+        trailing_refresh_weeks: For a season that isn't complete yet, how
+            many of its most-recently-cached weeks to always refetch.
+
+    Returns:
+        Week numbers (1..``max_week``) that should be fetched live this run:
+        every week never cached, plus — only when ``is_complete`` is
+        ``False`` — the most recent ``trailing_refresh_weeks`` cached weeks.
+    """
+    never_cached = set(range(1, max_week + 1)) - cached_weeks
+    if is_complete or not cached_weeks:
+        return never_cached
+
+    trailing_start = max(1, max(cached_weeks) - trailing_refresh_weeks + 1)
+    trailing = {week for week in cached_weeks if week >= trailing_start}
+    return never_cached | trailing
+
+
 def fetch_and_write_matchups(
     client: SleeperClient,
     leagues: list[dict[str, Any]],
@@ -104,12 +189,14 @@ def fetch_and_write_matchups(
     *,
     max_week: int = DEFAULT_MAX_WEEK,
     table_name: str = TABLE_NAME,
+    trailing_refresh_weeks: int = DEFAULT_TRAILING_REFRESH_WEEKS,
 ) -> int:
     """Fetch every week's matchups for every league in a chain and persist them.
 
-    A week that fails to fetch is logged and skipped; it does not abort the
-    rest of the season or the walk, matching
-    :func:`nuclearff.sleeper.standings.fetch_and_write_standings`'s posture.
+    **Incremental** (issue #148): a week already cached for a league whose
+    ``status`` is ``"complete"`` is never refetched — see the module
+    docstring. A week that fails to fetch live keeps whatever was already
+    cached for it, rather than losing that data to a transient error.
 
     Only replaces rows for the league_ids in ``leagues`` (via
     :func:`nuclearff.duckdb_io.merge_table`) -- every other league already
@@ -126,17 +213,41 @@ def fetch_and_write_matchups(
         db_path: Path to the DuckDB database file, created if absent.
         max_week: Maximum week number to fetch per season.
         table_name: Destination table.
+        trailing_refresh_weeks: For a not-yet-complete season, how many of
+            its most recently cached weeks to always refetch live (stat
+            corrections), even though they were already cached.
 
     Returns:
         The number of rows written.
     """
+    existing = _read_existing(db_path, table_name)
     rows: list[dict[str, Any]] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
         season = int(league["season"]) if league.get("season") else None
+        is_complete = league.get("status") == "complete"
 
-        for week in range(1, max_week + 1):
+        league_existing = (
+            existing.filter(pl.col("league_id") == league_id)
+            if existing.height
+            else existing
+        )
+        cached_weeks = (
+            set(league_existing["week"].to_list()) if league_existing.height else set()
+        )
+        weeks_needed = weeks_to_fetch(
+            cached_weeks,
+            max_week=max_week,
+            is_complete=is_complete,
+            trailing_refresh_weeks=trailing_refresh_weeks,
+        )
+
+        if league_existing.height:
+            kept = league_existing.filter(~pl.col("week").is_in(sorted(weeks_needed)))
+            rows.extend(kept.to_dicts())
+
+        for week in sorted(weeks_needed):
             try:
                 matchups = client.get_matchups(league_id, week)
             except SleeperAPIError as exc:
@@ -146,6 +257,10 @@ def fetch_and_write_matchups(
                     week,
                     exc,
                 )
+                if league_existing.height:
+                    rows.extend(
+                        league_existing.filter(pl.col("week") == week).to_dicts()
+                    )
                 continue
             if not matchups:
                 continue
