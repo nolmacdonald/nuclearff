@@ -99,10 +99,10 @@ class StorageConfig:
             )
 
         return cls(
-            provider=provider,  # ty: ignore[invalid-argument-type]
+            provider=provider,
             bucket=bucket,
             prefix=source.get("STORAGE_PREFIX", _DEFAULT_PREFIX).strip("/"),
-            region=source.get("STORAGE_REGION", _REGION_DEFAULTS[provider]),  # ty: ignore[invalid-argument-type]
+            region=source.get("STORAGE_REGION", _REGION_DEFAULTS[provider]),
             endpoint_url=endpoint_url,
             access_key_id=source.get("STORAGE_ACCESS_KEY_ID") or None,
             secret_access_key=source.get("STORAGE_SECRET_ACCESS_KEY") or None,

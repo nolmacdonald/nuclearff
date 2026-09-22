@@ -100,7 +100,7 @@ class ObjectStore:
         if config.session_token is not None:
             client_kwargs["aws_session_token"] = config.session_token
 
-        return boto3.client(**client_kwargs)  # ty: ignore[no-matching-overload]
+        return boto3.client(**client_kwargs)
 
     def put_file(
         self,

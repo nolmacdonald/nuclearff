@@ -1,4 +1,4 @@
-"""Provider-neutral cloud data platform: storage config, keys, manifests, and the object-store adapter.
+"""Provider-neutral cloud data platform: config, keys, manifests, object store.
 
 See the cloud data platform epic (GitHub Issue 182) for the full design and
 implementation sequence. This package currently covers Issues 183 and 184
