@@ -139,6 +139,87 @@ def test_fetch_and_write_matchups_respects_max_week(client, tmp_path):
     assert len(responses.calls) == 1
 
 
+# --- incremental fetch (issue #148) -----------------------------------------
+
+
+@responses.activate
+def test_fetch_and_write_matchups_skips_cached_weeks_for_a_complete_season(
+    client, tmp_path
+):
+    """A complete season's already-cached (populated) weeks are never refetched.
+
+    Weeks past the season's real end always return empty and leave no
+    cached row to recognize -- these are still probed every run, a small,
+    bounded cost (at most ``max_week`` minus the season's real length) that
+    doesn't grow with repeated calls. Only ``max_week=2`` here to keep that
+    bounded probe cost visible and exact rather than incidental.
+    """
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", json=MATCHUPS_WEEK_1
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/2", json=[])
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "complete"}
+
+    fetch_and_write_matchups(client, [league], db_path, max_week=2)
+    assert len(responses.calls) == 2
+
+    responses.calls.reset()
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/2", json=[])
+    count = fetch_and_write_matchups(client, [league], db_path, max_week=2)
+
+    assert count == 2
+    assert len(responses.calls) == 1
+    assert responses.calls[0].request.url.endswith("/matchups/2")
+
+
+@responses.activate
+def test_fetch_and_write_matchups_refreshes_trailing_weeks_for_an_active_season(
+    client, tmp_path
+):
+    """A not-yet-complete season still refetches its most recent cached weeks."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", json=MATCHUPS_WEEK_1
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "in_season"}
+
+    fetch_and_write_matchups(client, [league], db_path, max_week=1)
+    assert len(responses.calls) == 1
+
+    responses.calls.reset()
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", json=MATCHUPS_WEEK_1
+    )
+    count = fetch_and_write_matchups(client, [league], db_path, max_week=1)
+
+    # week 1 is both the only never-cached week and the trailing window --
+    # either way it must be refetched live, not silently skipped.
+    assert count == 2
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_fetch_and_write_matchups_keeps_cached_row_when_a_refetch_fails(
+    client, tmp_path
+):
+    """A transient failure while refetching a trailing week must not drop it."""
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", json=MATCHUPS_WEEK_1
+    )
+    db_path = tmp_path / "nuclearff.duckdb"
+    league = {"league_id": LEAGUE_ID, "season": 2025, "status": "in_season"}
+
+    fetch_and_write_matchups(client, [league], db_path, max_week=1)
+
+    responses.calls.reset()
+    for _ in range(5):
+        responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}/matchups/1", status=500)
+    count = fetch_and_write_matchups(client, [league], db_path, max_week=1)
+
+    assert count == 2
+
+
 @responses.activate
 def test_fetch_and_write_matchups_does_not_erase_another_leagues_rows(client, tmp_path):
     """Real bug fixed 2026-09-10: fetching a second, unrelated league used

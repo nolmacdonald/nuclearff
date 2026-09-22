@@ -31,6 +31,14 @@ used by :func:`standings_rows` only when the winners bracket produced no
 ranks *and* :func:`is_chopped_league` confirms the league type — a normal
 league with a genuinely empty bracket (e.g. a season still in progress)
 keeps its ``NULL`` ``final_rank`` rather than being misdetected.
+
+**Incremental fetch (issue #148).** A completed season's rosters, users,
+and both brackets cannot change, so :func:`fetch_and_write_standings`
+skips the four live calls entirely for a league whose raw ``status`` is
+``"complete"`` when that league already has rows in both
+:data:`STANDINGS_TABLE_NAME` and :data:`MATCHES_TABLE_NAME` — reusing the
+already-cached rows instead. A league that is not yet complete, or has
+never been fetched before, is always fetched live.
 """
 
 from __future__ import annotations
@@ -40,8 +48,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from nuclearff.duckdb_io import merge_table
-from nuclearff.exceptions import SleeperAPIError
+import polars as pl
+
+from nuclearff.duckdb_io import merge_table, read_table
+from nuclearff.exceptions import SleeperAPIError, StorageError
 from nuclearff.sleeper.client import SleeperClient
 
 logger = logging.getLogger(__name__)
@@ -376,6 +386,24 @@ def bracket_match_rows(
     return rows
 
 
+def _read_existing(db_path: str | Path, table_name: str) -> pl.DataFrame:
+    """Read already-cached rows for ``table_name``, tolerating a first-ever run.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table to read.
+
+    Returns:
+        The table's rows, or an empty ``league_id``-only frame if the
+        database file or the table doesn't exist yet — enough to check
+        membership, which is all callers here need.
+    """
+    try:
+        return read_table(db_path, table_name)
+    except StorageError:
+        return pl.DataFrame(schema={"league_id": pl.String})
+
+
 def fetch_and_write_standings(
     client: SleeperClient,
     leagues: list[dict[str, Any]],
@@ -385,6 +413,14 @@ def fetch_and_write_standings(
     matches_table_name: str = MATCHES_TABLE_NAME,
 ) -> tuple[int, int]:
     """Fetch rosters/users/brackets for every league in a chain and persist standings.
+
+    **Incremental** (issue #148): a league whose raw ``status`` is
+    ``"complete"`` and that already has rows in both ``table_name`` and
+    ``matches_table_name`` is skipped entirely — its four live calls
+    (rosters, users, both brackets) cannot produce a different result for a
+    finished season, and its already-cached rows are reused as-is. A league
+    that is not yet complete, or has no cached rows yet, is always fetched
+    live.
 
     Each of a season's four endpoints (rosters, users, winners bracket,
     losers bracket) is fetched independently: a failure on one is logged and
@@ -411,6 +447,14 @@ def fetch_and_write_standings(
     Returns:
         A ``(standings_rows_written, match_rows_written)`` tuple.
     """
+    existing_standings = _read_existing(db_path, table_name)
+    existing_matches = _read_existing(db_path, matches_table_name)
+    cached_league_ids = (
+        set(existing_standings["league_id"].to_list())
+        & set(existing_matches["league_id"].to_list())
+        if existing_standings.height and existing_matches.height
+        else set()
+    )
 
     def _optional(
         league_id: str, label: str, fetch: Any, default: Any, *, quiet: bool = False
@@ -437,6 +481,16 @@ def fetch_and_write_standings(
     for league in leagues:
         league_id = str(league["league_id"])
         season = int(league["season"]) if league.get("season") else None
+
+        if league.get("status") == "complete" and league_id in cached_league_ids:
+            standings.extend(
+                existing_standings.filter(pl.col("league_id") == league_id).to_dicts()
+            )
+            matches.extend(
+                existing_matches.filter(pl.col("league_id") == league_id).to_dicts()
+            )
+            continue
+
         chopped = is_chopped_league(league)
 
         rosters = _optional(
