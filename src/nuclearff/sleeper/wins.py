@@ -31,6 +31,20 @@ Cumulative wins increments only on an outright win. A tie neither adds nor
 subtracts, matching Sleeper's own separate ``ties`` counter, which already
 treats a tie as distinct from a win -- this module does not invent a
 half-win convention Sleeper itself doesn't use.
+
+**Not-yet-played weeks (issues #171, #172).** For a season still in
+progress, Sleeper returns a real ``points: 0`` placeholder -- not ``null``
+-- for every roster in a week that's scheduled but hasn't happened yet, and
+that placeholder is fetched and persisted like any other week (confirmed
+against the real league: literally every roster reads exactly ``0.0`` for
+each not-yet-played week, all at once). Nothing upstream marks these rows
+as provisional, so :func:`paired_weekly_matchups` drops them via
+:func:`drop_unplayed_weeks` before pairing -- otherwise two managers whose
+bracket slot lands on a future week score a phantom ``0-0`` "tie" (#171),
+and a single-digit real low score can never beat an unplayed week's ``0.0``
+for "lowest score of the week" (#109/#172, in :mod:`nuclearff.archive
+.records`, which reads ``sleeper_matchups`` directly and needs the same
+filter applied explicitly rather than inheriting it from this pairing).
 """
 
 from __future__ import annotations
@@ -65,6 +79,43 @@ _CUMULATIVE_SCHEMA = {
 }
 
 
+def drop_unplayed_weeks(matchups: pl.DataFrame) -> pl.DataFrame:
+    """Drop every roster's row for a week that hasn't been played yet.
+
+    Sleeper returns a real ``points: 0`` placeholder -- not ``null`` -- for
+    every roster in a week that's scheduled but hasn't happened yet, in a
+    season still in progress. There's no ``is_final``/``null`` flag in the
+    raw payload to key off instead, so this uses the shape that placeholder
+    actually takes: confirmed against the real league's cache, *every*
+    roster reads exactly ``0.0`` for a not-yet-played week, all at once. A
+    real completed NFL fantasy week landing at exactly ``0.0`` for literally
+    every roster in the league simultaneously does not happen in practice
+    (kicker and defense scoring alone rules it out), so that's the signal
+    used here (issues #171, #172).
+
+    Args:
+        matchups: ``sleeper_matchups`` rows.
+
+    Returns:
+        The same rows, minus any ``(league_id, week)`` group whose every
+        row has ``points == 0.0``. A ``null`` point, or any single nonzero
+        point, keeps the whole group -- including a real tie, which lands
+        on a nonzero score just as often as a decisive game does.
+    """
+    if matchups.height == 0:
+        return matchups
+
+    unplayed = (
+        matchups.group_by(["league_id", "week"])
+        .agg((pl.col("points") == 0.0).fill_null(False).all().alias("_all_zero"))
+        .filter(pl.col("_all_zero"))
+        .select("league_id", "week")
+    )
+    if unplayed.height == 0:
+        return matchups
+    return matchups.join(unplayed, on=["league_id", "week"], how="anti")
+
+
 def paired_weekly_matchups(matchups: pl.DataFrame) -> pl.DataFrame:
     """Join each roster's weekly points against its real opponent's.
 
@@ -82,10 +133,16 @@ def paired_weekly_matchups(matchups: pl.DataFrame) -> pl.DataFrame:
         ``league_id``, ``season``, ``week``, ``roster_id``, ``points``,
         ``opponent_roster_id``, ``opponent_points``, ``margin`` (``points -
         opponent_points`` -- positive is a win, negative a loss, zero a
-        tie). A bye week, or any ``(league_id, week, matchup_id)`` group
-        that isn't exactly two rosters, contributes no rows -- same
-        exclusion :func:`weekly_results` has always applied.
+        tie). A bye week, any ``(league_id, week, matchup_id)`` group that
+        isn't exactly two rosters, or a week that hasn't been played yet
+        (:func:`drop_unplayed_weeks`), contributes no rows -- the first two
+        exclusions are the same ones :func:`weekly_results` has always
+        applied.
     """
+    if matchups.height == 0:
+        return pl.DataFrame(schema=_PAIRED_SCHEMA)
+
+    matchups = drop_unplayed_weeks(matchups)
     if matchups.height == 0:
         return pl.DataFrame(schema=_PAIRED_SCHEMA)
 
