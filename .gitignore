@@ -210,8 +210,15 @@ __marimo__/
 # macOS
 .DS_Store
 
-# nuclearff: generated and third-party data (raw snapshots, caches, artifacts)
+# nuclearff: generated and third-party data (raw snapshots, caches, artifacts).
+# Deliberately depth-independent (no leading slash) so it also catches a
+# locally --root'd run's own data/ copy, e.g. examples/demo/data/ -- same
+# reasoning as **/configs/leagues/ below.
 data/
+# ...except the provider-neutral cloud-storage subpackage (GitHub Issue 182),
+# which is real source code that happens to also be named `data` -- confirmed
+# via `git check-ignore` that the pattern above was silently swallowing it.
+!/src/nuclearff/data/
 
 # nuclearff: local run configuration and per-league derived settings, written
 # by `config init` / `sleeper fetch-league` — personal to the machine that ran
