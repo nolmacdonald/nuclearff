@@ -599,29 +599,37 @@ def _cmd_report_playoff_bracket(args: argparse.Namespace) -> int:
     Returns:
         An exit code.
     """
-    from nuclearff.duckdb_io import read_table
+    import duckdb
+
+    from nuclearff.duckdb_io import read_table_for_league
     from nuclearff.report import render_playoff_brackets
 
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
 
-    matches = (
-        read_table(db_path, "sleeper_playoff_matches")
-        .filter(
-            (pl.col("league_id") == args.league_id) & (pl.col("season") == args.season)
+    # `league_id` alone already scopes to one season (Sleeper mints a new
+    # league_id each year), so pushing just that filter down to SQL --
+    # rather than reading every league's rows to discard most of them --
+    # covers both tables; the `season` check stays as a cheap client-side
+    # sanity check on the now-narrow result, not the real filter.
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        matches = (
+            read_table_for_league(
+                db_path, "sleeper_playoff_matches", [args.league_id], connection=conn
+            )
+            .filter(pl.col("season") == args.season)
+            .to_dicts()
         )
-        .to_dicts()
-    )
-    if not matches:
-        print(
-            f"No sleeper_playoff_matches rows for league {args.league_id}, season "
-            f"{args.season}. Run `sleeper fetch-league --standings` first."
-        )
-        return EXIT_ERROR
+        if not matches:
+            print(
+                f"No sleeper_playoff_matches rows for league {args.league_id}, season "
+                f"{args.season}. Run `sleeper fetch-league --standings` first."
+            )
+            return EXIT_ERROR
 
-    standings = read_table(db_path, "sleeper_standings").filter(
-        (pl.col("league_id") == args.league_id) & (pl.col("season") == args.season)
-    )
+        standings = read_table_for_league(
+            db_path, "sleeper_standings", [args.league_id], connection=conn
+        ).filter(pl.col("season") == args.season)
     names = dict(zip(standings["roster_id"], standings["display_name"], strict=True))
 
     out_dir = (
@@ -1105,6 +1113,8 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
     Returns:
         An exit code.
     """
+    import duckdb
+
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import render_cumulative_wins
     from nuclearff.sleeper.wins import cumulative_wins, weekly_results
@@ -1112,23 +1122,31 @@ def _cmd_report_wins(args: argparse.Namespace) -> int:
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
 
-    try:
-        matchups = read_table(db_path, "sleeper_matchups")
-    except StorageError:
+    if not db_path.is_file():
         print(
             "No sleeper_matchups table found. Run "
             "`nuclearff sleeper fetch-league --matchups` first."
         )
         return EXIT_ERROR
 
-    try:
-        standings = read_table(db_path, "sleeper_standings")
-    except StorageError:
-        print(
-            "No sleeper_standings table found. Run "
-            "`nuclearff sleeper fetch-league --standings` first."
-        )
-        return EXIT_ERROR
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        try:
+            matchups = read_table(db_path, "sleeper_matchups", connection=conn)
+        except StorageError:
+            print(
+                "No sleeper_matchups table found. Run "
+                "`nuclearff sleeper fetch-league --matchups` first."
+            )
+            return EXIT_ERROR
+
+        try:
+            standings = read_table(db_path, "sleeper_standings", connection=conn)
+        except StorageError:
+            print(
+                "No sleeper_standings table found. Run "
+                "`nuclearff sleeper fetch-league --standings` first."
+            )
+            return EXIT_ERROR
 
     cumulative = cumulative_wins(weekly_results(matchups), standings)
     if not args.all_users:
@@ -1202,6 +1220,8 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     Returns:
         An exit code.
     """
+    import duckdb
+
     from nuclearff.duckdb_io import read_table
     from nuclearff.report import render_draft_order_table
     from nuclearff.sleeper.draft import draft_order_stats
@@ -1209,23 +1229,31 @@ def _cmd_report_draft_order(args: argparse.Namespace) -> int:
     config = _resolve_config(args)
     db_path = config.paths.cache_dir / "nuclearff.duckdb"
 
-    try:
-        picks = read_table(db_path, "sleeper_draft_picks")
-    except StorageError:
+    if not db_path.is_file():
         print(
             "No sleeper_draft_picks table found. Run "
             "`nuclearff sleeper fetch-league --drafts` first."
         )
         return EXIT_ERROR
 
-    try:
-        standings = read_table(db_path, "sleeper_standings")
-    except StorageError:
-        print(
-            "No sleeper_standings table found. Run "
-            "`nuclearff sleeper fetch-league --standings` first."
-        )
-        return EXIT_ERROR
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        try:
+            picks = read_table(db_path, "sleeper_draft_picks", connection=conn)
+        except StorageError:
+            print(
+                "No sleeper_draft_picks table found. Run "
+                "`nuclearff sleeper fetch-league --drafts` first."
+            )
+            return EXIT_ERROR
+
+        try:
+            standings = read_table(db_path, "sleeper_standings", connection=conn)
+        except StorageError:
+            print(
+                "No sleeper_standings table found. Run "
+                "`nuclearff sleeper fetch-league --standings` first."
+            )
+            return EXIT_ERROR
 
     stats = draft_order_stats(picks, standings)
     if not args.all_users:
@@ -1361,7 +1389,7 @@ def _cmd_report_on_this_day(args: argparse.Namespace) -> int:
 
 
 def _read_performance_tables(
-    db_path: Path, *, fetch_projections_hint: str
+    db_path: Path, *, fetch_projections_hint: str, league_id: str | None = None
 ) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame, pl.DataFrame] | None:
     """Read the four tables both performance report commands need.
 
@@ -1369,53 +1397,89 @@ def _read_performance_tables(
     :func:`_cmd_report_season_performance` so the required-table list and
     error messages can't drift between the two.
 
+    All four reads share one DuckDB connection rather than each opening its
+    own (issue #149). ``sleeper_matchups``/``sleeper_standings`` are also
+    filtered to ``league_id`` in SQL when it's already known -- only
+    :func:`_cmd_report_performance` can pass it: :func:`_cmd_report_season_performance`
+    doesn't know which ``league_id`` a season resolves to until *after* it
+    has seen every ``league_id`` in the full ``sleeper_matchups`` table, so it
+    must keep reading unfiltered (``league_id=None``).
+    ``sleeper_players``/``sleeper_projections`` carry no ``league_id`` column
+    at all (global across leagues), so they're always read in full.
+
     Args:
         db_path: Path to the DuckDB database file.
         fetch_projections_hint: The exact ``sleeper fetch-projections``
             invocation to suggest if that table is missing -- the weekly
             and season commands suggest a different one.
+        league_id: Restrict ``sleeper_matchups``/``sleeper_standings`` to
+            this league, pushed down to SQL. ``None`` reads every league
+            already cached, for the season command's own resolution step.
 
     Returns:
         ``(matchups, standings, players, projections)`` in that order, or
         ``None`` if any table is missing (an explanatory message is
         printed before returning).
     """
-    from nuclearff.duckdb_io import read_table
+    import duckdb
 
-    try:
-        matchups = read_table(db_path, "sleeper_matchups")
-    except StorageError:
+    from nuclearff.duckdb_io import read_table, read_table_for_league
+
+    db_path = Path(db_path)
+    if not db_path.is_file():
         print(
             "No sleeper_matchups table found. Run "
             "`nuclearff sleeper fetch-league --matchups` first."
         )
         return None
 
-    try:
-        standings = read_table(db_path, "sleeper_standings")
-    except StorageError:
-        print(
-            "No sleeper_standings table found. Run "
-            "`nuclearff sleeper fetch-league --standings` first."
-        )
-        return None
+    with duckdb.connect(str(db_path), read_only=True) as conn:
 
-    try:
-        players = read_table(db_path, "sleeper_players")
-    except StorageError:
-        print(
-            "No sleeper_players table found. Run "
-            "`nuclearff sleeper fetch-players` first."
-        )
-        return None
+        def _read(table: str) -> pl.DataFrame:
+            if league_id is not None and table in {
+                "sleeper_matchups",
+                "sleeper_standings",
+            }:
+                return read_table_for_league(
+                    db_path, table, [league_id], connection=conn
+                )
+            return read_table(db_path, table, connection=conn)
 
-    try:
-        projections = read_table(db_path, "sleeper_projections")
-    except StorageError:
-        print(
-            f"No sleeper_projections table found. Run {fetch_projections_hint} first."
-        )
-        return None
+        try:
+            matchups = _read("sleeper_matchups")
+        except StorageError:
+            print(
+                "No sleeper_matchups table found. Run "
+                "`nuclearff sleeper fetch-league --matchups` first."
+            )
+            return None
+
+        try:
+            standings = _read("sleeper_standings")
+        except StorageError:
+            print(
+                "No sleeper_standings table found. Run "
+                "`nuclearff sleeper fetch-league --standings` first."
+            )
+            return None
+
+        try:
+            players = _read("sleeper_players")
+        except StorageError:
+            print(
+                "No sleeper_players table found. Run "
+                "`nuclearff sleeper fetch-players` first."
+            )
+            return None
+
+        try:
+            projections = _read("sleeper_projections")
+        except StorageError:
+            print(
+                f"No sleeper_projections table found. Run {fetch_projections_hint} "
+                "first."
+            )
+            return None
 
     return matchups, standings, players, projections
 
@@ -1452,6 +1516,7 @@ def _cmd_report_performance(args: argparse.Namespace) -> int:
             f"`nuclearff sleeper fetch-projections --season <season> "
             f"--week {args.week}`"
         ),
+        league_id=args.league_id,
     )
     if tables is None:
         return EXIT_ERROR

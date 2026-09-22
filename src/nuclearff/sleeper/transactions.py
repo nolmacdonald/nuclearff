@@ -96,8 +96,13 @@ CREATE TABLE IF NOT EXISTS {table} (
     waiver_budget JSON,
     settings JSON,
     metadata JSON
-)
+);
+CREATE INDEX IF NOT EXISTS idx_{table}_league_id ON {table} (league_id)
 """
+"""``league_id`` isn't part of this table's primary key (``transaction_id``
+is globally unique on its own), so without this explicit index every
+:func:`nuclearff.duckdb_io.merge_table` delete-by-``league_id`` -- issued
+on every incremental fetch -- would full-table-scan (issue #149)."""
 
 _PLAYER_COLUMNS = (
     "transaction_id",
@@ -119,8 +124,11 @@ CREATE TABLE IF NOT EXISTS {table} (
     roster_id INTEGER,
     direction VARCHAR,
     PRIMARY KEY (transaction_id, player_id, direction)
-)
+);
+CREATE INDEX IF NOT EXISTS idx_{table}_league_id ON {table} (league_id)
 """
+"""Same ``league_id`` index rationale as :data:`_TRANSACTION_CREATE_TABLE_SQL`
+-- this table's primary key doesn't include ``league_id`` either."""
 
 
 def _epoch_ms_to_datetime(value: Any) -> datetime | None:

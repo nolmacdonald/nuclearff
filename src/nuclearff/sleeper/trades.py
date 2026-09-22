@@ -41,7 +41,7 @@ from pathlib import Path
 
 import polars as pl
 
-from nuclearff.duckdb_io import read_table
+from nuclearff.duckdb_io import read_table, read_table_for_league
 
 TABLE_NAME = "sleeper_transactions"
 """Source table this module reads from — see :mod:`nuclearff.sleeper.transactions`."""
@@ -71,7 +71,11 @@ def load_trades(
             (``sleeper_transactions`` stores one ``league_id`` per season,
             since Sleeper mints a new one each year). ``None`` includes
             every trade in the table — the manager trade network is a
-            multi-season view by design.
+            multi-season view by design. Given, the restriction is pushed
+            down to SQL (:func:`nuclearff.duckdb_io.read_table_for_league`)
+            rather than reading every league's rows just to discard most of
+            them (issue #149) — a real cost once a shared cache holds more
+            than one league's full history.
 
     Returns:
         One row per (trade, manager pair): ``transaction_id``, ``season``,
@@ -80,11 +84,13 @@ def load_trades(
         A-B and B-A). A trade where fewer than two rosters resolve to a
         known manager name contributes no rows.
     """
-    transactions = read_table(db_path, TABLE_NAME).filter(
+    if league_ids is None:
+        transactions = read_table(db_path, TABLE_NAME)
+    else:
+        transactions = read_table_for_league(db_path, TABLE_NAME, list(league_ids))
+    transactions = transactions.filter(
         (pl.col("type") == "trade") & (pl.col("status") == "complete")
     )
-    if league_ids is not None:
-        transactions = transactions.filter(pl.col("league_id").is_in(list(league_ids)))
 
     rows: list[dict[str, object]] = []
     for row in transactions.iter_rows(named=True):
