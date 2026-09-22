@@ -228,6 +228,10 @@ dev/tables/_cache/
 
 # nuclearff: examples/ notebooks' own generated run output -- `data/` above
 # already covers examples/demo/data/ (a bare pattern, matches anywhere), this
-# catches the one gap: the notebooks' own
-# `config init -o ./configs/nuclearff.yaml` cell writes outside --root.
+# catches two gaps: the old notebooks' `config init -o ./configs/nuclearff.yaml`
+# cell writes outside --root, and the current (#178) notebooks' own
+# `dump_config(cfg, "./demo/configs/nuclearff.yaml")` cell writes under --root
+# but to a bare `nuclearff.yaml`, not `configs/leagues/`, so **/configs/leagues/
+# above doesn't catch it either.
 examples/configs/nuclearff.yaml
+examples/demo/configs/nuclearff.yaml

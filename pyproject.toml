@@ -92,6 +92,9 @@ ignore = []
 [tool.ruff.lint.per-file-ignores]
 # Notebook cells are real, runnable CLI/URL lines, not wrappable source code.
 "examples/*.ipynb" = ["E501"]
+# build_notebooks.py's string literals are that same notebook-cell content,
+# embedded as Python source rather than JSON -- same reasoning, same ignore.
+"examples/build_notebooks.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
