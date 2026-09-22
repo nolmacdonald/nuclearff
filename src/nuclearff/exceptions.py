@@ -79,3 +79,26 @@ class StorageError(NuclearffError):
         super().__init__(
             f"Could not read table {table_name!r} from {db_path}: {message}"
         )
+
+
+class ObjectStoreError(NuclearffError):
+    """Raised when an R2/S3 object-store operation fails or a key is unsafe.
+
+    Covers both an unsafe object key (:func:`nuclearff.data.keys.validate_key`
+    — a key that escapes its configured prefix before any request is made)
+    and a failed live request (:mod:`nuclearff.data.object_store` wrapping a
+    ``botocore`` exception) under one type, so callers do not need to know
+    which layer rejected the operation.
+
+    Args:
+        key: The object key involved, if any.
+        message: What went wrong.
+
+    Attributes:
+        key: The object key involved, or ``None``.
+    """
+
+    def __init__(self, key: str | None, message: str) -> None:
+        self.key = key
+        detail = f" (key={key!r})" if key is not None else ""
+        super().__init__(f"Object store error{detail}: {message}")
