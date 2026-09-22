@@ -6,7 +6,12 @@ import duckdb
 import polars as pl
 import pytest
 
-from nuclearff.duckdb_io import merge_table, read_table, replace_table
+from nuclearff.duckdb_io import (
+    merge_table,
+    read_table,
+    read_table_for_league,
+    replace_table,
+)
 from nuclearff.exceptions import StorageError
 
 _CREATE_SQL = "CREATE TABLE {table} (id VARCHAR PRIMARY KEY, name VARCHAR)"
@@ -200,6 +205,113 @@ def test_merge_table_rejects_a_bad_key_column(tmp_path):
             key_column="league_id; DROP TABLE matchups;",
             key_values=["A"],
         )
+
+
+# --- read_table_for_league / connection reuse (issue #149) ------------------
+
+
+def test_read_table_for_league_filters_in_sql_not_after(tmp_path):
+    db_path = tmp_path / "test.duckdb"
+    merge_table(
+        db_path,
+        "matchups",
+        _MERGE_CREATE_SQL,
+        ("league_id", "week", "points"),
+        [["A", 1, 10.0], ["B", 1, 20.0], ["C", 1, 30.0]],
+        key_column="league_id",
+        key_values=["A", "B", "C"],
+    )
+
+    frame = read_table_for_league(db_path, "matchups", ["A", "C"]).sort("league_id")
+
+    assert frame["league_id"].to_list() == ["A", "C"]
+
+
+def test_read_table_for_league_empty_ids_returns_no_rows_with_the_real_schema(
+    tmp_path,
+):
+    """An explicitly empty selection is zero rows, not 'everything' (the
+    behavior omitting a filter entirely would have)."""
+    db_path = tmp_path / "test.duckdb"
+    merge_table(
+        db_path,
+        "matchups",
+        _MERGE_CREATE_SQL,
+        ("league_id", "week", "points"),
+        [["A", 1, 10.0]],
+        key_column="league_id",
+        key_values=["A"],
+    )
+
+    frame = read_table_for_league(db_path, "matchups", [])
+
+    assert frame.is_empty()
+    assert frame.columns == ["league_id", "week", "points"]
+
+
+def test_read_table_for_league_missing_database_raises_storage_error(tmp_path):
+    with pytest.raises(StorageError, match="does not exist"):
+        read_table_for_league(tmp_path / "never-created.duckdb", "widgets", ["A"])
+
+
+def test_read_table_for_league_rejects_a_bad_league_column(tmp_path):
+    with pytest.raises(ValueError, match="plain identifier"):
+        read_table_for_league(
+            tmp_path / "test.duckdb",
+            "matchups",
+            ["A"],
+            league_column="league_id; DROP TABLE matchups;",
+        )
+
+
+def test_read_table_and_read_table_for_league_accept_a_shared_connection(tmp_path):
+    """A caller reading several tables for one command can pass one already-open
+    connection instead of each read opening (and closing) its own."""
+    db_path = tmp_path / "test.duckdb"
+    merge_table(
+        db_path,
+        "matchups",
+        _MERGE_CREATE_SQL,
+        ("league_id", "week", "points"),
+        [["A", 1, 10.0]],
+        key_column="league_id",
+        key_values=["A"],
+    )
+    replace_table(db_path, "widgets", _CREATE_SQL, ("id", "name"), [["1", "a"]])
+
+    with duckdb.connect(str(db_path), read_only=True) as conn:
+        matchups = read_table_for_league(db_path, "matchups", ["A"], connection=conn)
+        widgets = read_table(db_path, "widgets", connection=conn)
+
+    assert matchups.rows() == [("A", 1, 10.0)]
+    assert widgets.rows() == [("1", "a")]
+
+
+def test_merge_table_executes_multiple_semicolon_separated_statements(tmp_path):
+    """create_table_sql may append a trailing CREATE INDEX -- both statements
+    must run, not just the first (issue #149's secondary-index fix relies on
+    this)."""
+    db_path = tmp_path / "test.duckdb"
+    create_sql = (
+        "CREATE TABLE IF NOT EXISTS {table} (league_id VARCHAR, week INTEGER);"
+        "CREATE INDEX IF NOT EXISTS idx_{table}_league_id ON {table} (league_id)"
+    )
+
+    merge_table(
+        db_path,
+        "matchups",
+        create_sql,
+        ("league_id", "week"),
+        [["A", 1]],
+        key_column="league_id",
+        key_values=["A"],
+    )
+
+    with duckdb.connect(str(db_path)) as conn:
+        indexes = conn.execute(
+            "SELECT index_name FROM duckdb_indexes() WHERE table_name = 'matchups'"
+        ).fetchall()
+    assert ("idx_matchups_league_id",) in indexes
 
 
 def test_read_table_infers_a_nullable_float_column_past_the_first_100_rows(tmp_path):

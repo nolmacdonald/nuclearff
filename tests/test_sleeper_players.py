@@ -115,6 +115,33 @@ def test_write_players_table_replaces_rather_than_appends(players_payload, tmp_p
     assert total == 1
 
 
+def test_write_players_table_skips_rewrite_when_unchanged(players_payload, tmp_path):
+    """An identical second fetch never triggers the DROP + reinsert.
+
+    Proven directly, not just by return value: a row manually inserted
+    between the two writes (something only a real rewrite would ever
+    remove) must still be there afterward if the rewrite was truly
+    skipped.
+    """
+    db_path = tmp_path / "nuclearff.duckdb"
+    write_players_table(players_payload, db_path)
+
+    with duckdb.connect(str(db_path)) as conn:
+        conn.execute(
+            f"INSERT INTO {TABLE_NAME} (player_id, full_name) VALUES "
+            "('sentinel', 'Should Survive')"
+        )
+
+    count = write_players_table(dict(players_payload), db_path)
+
+    assert count == 3  # 2 real players + the sentinel row, unless rewritten
+    with duckdb.connect(str(db_path)) as conn:
+        survived = conn.execute(
+            f"SELECT 1 FROM {TABLE_NAME} WHERE player_id = 'sentinel'"
+        ).fetchone()
+    assert survived is not None
+
+
 def test_write_players_table_rejects_a_bad_table_name(players_payload, tmp_path):
     """A table name that is not a plain identifier is refused, not interpolated."""
     with pytest.raises(ValueError, match="plain identifier"):

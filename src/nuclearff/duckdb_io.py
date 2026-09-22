@@ -22,6 +22,14 @@ handoff. DuckDB's DataFrame integrations (``.pl()``, ``CREATE TABLE ... AS
 SELECT * FROM df``) convert through Arrow, which requires ``pyarrow`` even
 though neither ``duckdb`` nor ``polars`` declares it as a dependency. Plain SQL
 avoids that dependency for what are, so far, a handful of typed columns.
+
+**Reads (issue #149).** :func:`read_table` always ran ``SELECT * FROM
+{table}`` with every filtering done client-side in Polars after loading the
+*entire* table -- for a shared cache holding several leagues' full
+multi-season history, most callers only ever wanted one. :func:`read_table_for_league`
+pushes a ``league_id IN (...)`` filter down to SQL instead. Both accept an
+optional already-open ``connection`` so a caller reading several tables for
+one command doesn't open a separate DuckDB connection per table.
 """
 
 from __future__ import annotations
@@ -122,7 +130,9 @@ def merge_table(
             statement with a single ``{table}`` placeholder, in the same
             column order as ``columns``. Must be ``IF NOT EXISTS``, not a
             plain ``CREATE TABLE`` -- the table is expected to already
-            exist on every call after the first.
+            exist on every call after the first. May contain more than one
+            ``;``-separated statement (e.g. a trailing ``CREATE INDEX``) --
+            each is executed in order.
         columns: Column names, in insertion order.
         rows: One sequence of values per row, in column order.
         key_column: The column identifying which existing rows this call
@@ -150,7 +160,10 @@ def merge_table(
     key_values = list(key_values)
 
     with duckdb.connect(str(db_path)) as conn:
-        conn.execute(create_table_sql.format(table=table_name))
+        for statement in create_table_sql.format(table=table_name).split(";"):
+            statement = statement.strip()
+            if statement:
+                conn.execute(statement)
         if key_values:
             delete_placeholders = ", ".join(["?"] * len(key_values))
             conn.execute(
@@ -164,33 +177,22 @@ def merge_table(
     return len(rows)
 
 
-def read_table(db_path: str | Path, table_name: str) -> pl.DataFrame:
-    """Read a DuckDB table into a Polars DataFrame.
+def _collect(
+    conn: duckdb.DuckDBPyConnection, query: str, params: Sequence[Any]
+) -> pl.DataFrame:
+    """Run ``query`` and collect the result into a Polars DataFrame.
 
     Args:
-        db_path: Path to the DuckDB database file.
-        table_name: Table to read.
+        conn: An open DuckDB connection.
+        query: A complete, already-parameterized SQL query.
+        params: Values to bind to ``query``'s ``?`` placeholders.
 
     Returns:
-        The table's rows as a DataFrame, column order preserved.
-
-    Raises:
-        ValueError: If ``table_name`` is not a plain identifier.
-        StorageError: If the database file or the table does not exist.
+        The result rows as a DataFrame, column order preserved.
     """
-    _check_identifier(table_name)
-
-    db_path = Path(db_path)
-    if not db_path.is_file():
-        raise StorageError(table_name, str(db_path), "database file does not exist")
-
-    try:
-        with duckdb.connect(str(db_path), read_only=True) as conn:
-            result = conn.execute(f"SELECT * FROM {table_name}")
-            rows = result.fetchall()
-            columns = [d[0] for d in result.description]
-    except duckdb.Error as exc:
-        raise StorageError(table_name, str(db_path), str(exc)) from exc
+    result = conn.execute(query, list(params))
+    rows = result.fetchall()
+    columns = [d[0] for d in result.description]
 
     # `infer_schema_length=None` (scan every row, not just the default
     # first 100): `sleeper_matchups.custom_points` is a real column where
@@ -203,3 +205,125 @@ def read_table(db_path: str | Path, table_name: str) -> pl.DataFrame:
     # reader of it, so this was a real, latent bug in every table read
     # here, not something new to matchups specifically.
     return pl.DataFrame(rows, schema=columns, orient="row", infer_schema_length=None)
+
+
+def _read(
+    db_path: str | Path,
+    table_name: str,
+    query: str,
+    params: Sequence[Any],
+    *,
+    connection: duckdb.DuckDBPyConnection | None = None,
+) -> pl.DataFrame:
+    """Shared connection-handling for :func:`read_table`/:func:`read_table_for_league`.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table being read (for the error message only).
+        query: A complete, already-parameterized SQL query.
+        params: Values to bind to ``query``'s ``?`` placeholders.
+        connection: An already-open connection to reuse instead of opening
+            (and closing) a new one -- see the module docstring.
+
+    Returns:
+        The result rows as a DataFrame.
+
+    Raises:
+        StorageError: If the database file or the table does not exist.
+    """
+    if connection is not None:
+        try:
+            return _collect(connection, query, params)
+        except duckdb.Error as exc:
+            raise StorageError(table_name, str(db_path), str(exc)) from exc
+
+    db_path = Path(db_path)
+    if not db_path.is_file():
+        raise StorageError(table_name, str(db_path), "database file does not exist")
+    try:
+        with duckdb.connect(str(db_path), read_only=True) as conn:
+            return _collect(conn, query, params)
+    except duckdb.Error as exc:
+        raise StorageError(table_name, str(db_path), str(exc)) from exc
+
+
+def read_table(
+    db_path: str | Path,
+    table_name: str,
+    *,
+    connection: duckdb.DuckDBPyConnection | None = None,
+) -> pl.DataFrame:
+    """Read a DuckDB table into a Polars DataFrame.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table to read.
+        connection: An already-open connection to read through, instead of
+            opening (and closing) a new one. Pass the same connection to
+            every :func:`read_table`/:func:`read_table_for_league` call in
+            one command/request that would otherwise each open their own --
+            see the module docstring.
+
+    Returns:
+        The table's rows as a DataFrame, column order preserved.
+
+    Raises:
+        ValueError: If ``table_name`` is not a plain identifier.
+        StorageError: If the database file or the table does not exist.
+    """
+    _check_identifier(table_name)
+    return _read(
+        db_path, table_name, f"SELECT * FROM {table_name}", [], connection=connection
+    )
+
+
+def read_table_for_league(
+    db_path: str | Path,
+    table_name: str,
+    league_ids: Sequence[str],
+    *,
+    league_column: str = "league_id",
+    connection: duckdb.DuckDBPyConnection | None = None,
+) -> pl.DataFrame:
+    """Read only the rows for the given league(s), filtered in SQL rather than after.
+
+    Every ``fetch_and_write_*`` module in this package writes one
+    ``league_id`` (or draft chain of them) per season, and most readers only
+    ever want one league's slice of a table that, in a real shared cache,
+    holds several unrelated leagues' full multi-season history. Reading the
+    whole table and filtering client-side in Polars (this project's
+    original, and still most common, pattern) pulls every other league's
+    rows into memory and off disk for nothing.
+
+    Args:
+        db_path: Path to the DuckDB database file.
+        table_name: Table to read.
+        league_ids: The ``league_column`` values to include. An empty
+            sequence returns zero rows (with the table's real schema, not a
+            guessed one) rather than every row -- unlike omitting a filter
+            entirely, an explicitly empty selection is never "everything."
+        league_column: The column ``league_ids`` filters on. Every table
+            :mod:`nuclearff.sleeper` writes calls this ``league_id``; the
+            parameter exists for the rare table that doesn't (none today).
+        connection: An already-open connection to read through -- see
+            :func:`read_table`.
+
+    Returns:
+        The matching rows as a DataFrame, column order preserved.
+
+    Raises:
+        ValueError: If ``table_name`` or ``league_column`` is not a plain
+            identifier.
+        StorageError: If the database file or the table does not exist.
+    """
+    _check_identifier(table_name)
+    _check_identifier(league_column)
+
+    league_ids = list(league_ids)
+    if not league_ids:
+        where = "FALSE"
+    else:
+        where = f"{league_column} IN ({', '.join(['?'] * len(league_ids))})"
+
+    query = f"SELECT * FROM {table_name} WHERE {where}"
+    return _read(db_path, table_name, query, league_ids, connection=connection)
