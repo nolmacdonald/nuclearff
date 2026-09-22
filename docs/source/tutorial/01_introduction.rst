@@ -85,11 +85,11 @@ statistics and configuring its own logging:
    player_stats = nfl.load_player_stats([2023, 2024])
    print(player_stats.select(
        ["player_display_name", "season", "week", "position", "fantasy_points"]
-   ).head(5))
+   ).head(10))
 
 .. code-block:: text
 
-   shape: (5, 5)
+   shape: (10, 5)
    ┌──────────────────────┬────────┬──────┬──────────┬─────────────────┐
    │ player_display_name  ┆ season ┆ week ┆ position ┆ fantasy_points  │
    │ ---                  ┆ ---    ┆ ---  ┆ ---      ┆ ---             │
@@ -100,6 +100,11 @@ statistics and configuring its own logging:
    │ Nick Folk            ┆ 2023   ┆ 1    ┆ K        ┆ 0.0             │
    │ Calais Campbell      ┆ 2023   ┆ 1    ┆ DE       ┆ 0.0             │
    │ Matthew Stafford     ┆ 2023   ┆ 1    ┆ QB       ┆ 14.46           │
+   │ Graham Gano          ┆ 2023   ┆ 1    ┆ K        ┆ 0.0             │
+   │ Thomas Morstead      ┆ 2023   ┆ 1    ┆ P        ┆ 0.0             │
+   │ Al Woods             ┆ 2023   ┆ 1    ┆ DT       ┆ 0.0             │
+   │ Brandon Graham       ┆ 2023   ┆ 1    ┆ DE       ┆ 0.0             │
+   │ Kareem Jackson       ┆ 2023   ┆ 1    ┆ S        ┆ 0.0             │
    └──────────────────────┴────────┴──────┴──────────┴─────────────────┘
 
 That real query returned 37,626 player-week rows across two seasons — every

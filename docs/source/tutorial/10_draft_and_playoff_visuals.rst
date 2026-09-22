@@ -166,12 +166,12 @@ often they landed first or last overall:
    picks = read_table(db_path, "sleeper_draft_picks")
    standings = read_table(db_path, "sleeper_standings")
    stats = draft_order_stats(picks, standings)
-   print(stats.sort("avg_draft_position").head(5))
+   print(stats.sort("avg_draft_position").head(10))
 
 .. code-block:: text
 
    Draft picks: 900
-   shape: (5, 5)
+   shape: (10, 5)
    ┌────────────────┬─────────────────┬────────────────────┬──────────────────┬─────────────────┐
    │ manager        ┆ seasons_drafted ┆ avg_draft_position ┆ times_first_pick ┆ times_last_pick │
    ╞════════════════╪═════════════════╪════════════════════╪══════════════════╪═════════════════╡
@@ -179,7 +179,12 @@ often they landed first or last overall:
    │ bigshett         ┆ 1               ┆ 3.0                ┆ 0                ┆ 0                │
    │ Donkeysride      ┆ 4               ┆ 3.25               ┆ 1                ┆ 0                │
    │ ruhbberduhcky    ┆ 4               ┆ 3.5                ┆ 2                ┆ 1                │
+   │ macbuffet66      ┆ 2               ┆ 4.0                ┆ 0                ┆ 0                │
    │ nawfeastdallas   ┆ 4               ┆ 4.5                ┆ 1                ┆ 1                │
+   │ aperry151        ┆ 6               ┆ 5.0                ┆ 1                ┆ 0                │
+   │ thatbolb         ┆ 6               ┆ 5.833333           ┆ 0                ┆ 1                │
+   │ nolmacdonald     ┆ 6               ┆ 6.166667           ┆ 0                ┆ 0                │
+   │ hyoga10          ┆ 6               ┆ 6.5                ┆ 0                ┆ 0                │
    └────────────────┴─────────────────┴────────────────────┴──────────────────┴─────────────────┘
 
 ``render_draft_order_table`` turns this into the same styled PNG format as

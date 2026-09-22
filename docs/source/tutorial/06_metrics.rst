@@ -162,12 +162,12 @@ own expected-fantasy-opportunity model onto real receiving stats and adds
        df.filter(pl.col("expected_tds").is_not_null())
        .sort("td_regression")
        .select(["player_display_name", "position", "receiving_tds", "expected_tds", "td_regression"])
-       .head(5)
+       .head(10)
    )
 
 .. code-block:: text
 
-   shape: (5, 5)
+   shape: (10, 5)
    ┌──────────────────────┬──────────┬───────────────┬──────────────┬───────────────┐
    │ player_display_name  ┆ position ┆ receiving_tds ┆ expected_tds ┆ td_regression │
    ╞══════════════════════╪══════════╪═══════════════╪══════════════╪═══════════════╡
@@ -176,6 +176,11 @@ own expected-fantasy-opportunity model onto real receiving stats and adds
    │ Adonai Mitchell       ┆ WR       ┆ 0             ┆ 3.56         ┆ -3.56         │
    │ George Pickens        ┆ WR       ┆ 3             ┆ 6.46         ┆ -3.46         │
    │ Travis Kelce          ┆ TE       ┆ 3             ┆ 6.28         ┆ -3.28         │
+   │ Diontae Johnson       ┆ WR       ┆ 3             ┆ 5.58         ┆ -2.58         │
+   │ Trenton Irwin         ┆ WR       ┆ 0             ┆ 2.47         ┆ -2.47         │
+   │ Colby Parkinson       ┆ TE       ┆ 1             ┆ 3.47         ┆ -2.47         │
+   │ Brandon Aiyuk         ┆ WR       ┆ 0             ┆ 2.46         ┆ -2.46         │
+   │ Josh Palmer           ┆ WR       ┆ 1             ┆ 3.43         ┆ -2.43         │
    └──────────────────────┴──────────┴───────────────┴──────────────┴───────────────┘
 
 Negative ``td_regression`` (real 2024) is the "TD-unlucky" list — Trey
