@@ -193,10 +193,10 @@ def _cmd_sleeper_fetch_league(args: argparse.Namespace) -> int:
             or args.roster_players
             or args.drafts
         ):
-            leagues = walk_league_chain(
-                client, args.league_id, max_seasons=args.max_seasons
-            )
             db_path = config.paths.cache_dir / "nuclearff.duckdb"
+            leagues = walk_league_chain(
+                client, args.league_id, max_seasons=args.max_seasons, db_path=db_path
+            )
 
         if args.history:
             raw_count, config_count = write_league_tables(leagues, db_path)

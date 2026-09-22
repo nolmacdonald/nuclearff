@@ -156,6 +156,107 @@ def test_walk_league_chain_respects_max_seasons(
     assert len(leagues) == 1
 
 
+# --- walk_league_chain incremental fetch (issue #180) ----------------------
+
+
+@responses.activate
+def test_walk_league_chain_reuses_a_cached_complete_hop(
+    client, league_payload, previous_league_payload, tmp_path
+):
+    """A hop already cached as `status == "complete"` skips its live call."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    write_league_tables([previous_league_payload], db_path)
+    # No mock registered for PREVIOUS_LEAGUE_ID -- if `walk_league_chain`
+    # tried to fetch it live, `responses` would raise a connection error.
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+
+    leagues = walk_league_chain(client, LEAGUE_ID, db_path=db_path)
+
+    assert [league["league_id"] for league in leagues] == [
+        LEAGUE_ID,
+        PREVIOUS_LEAGUE_ID,
+    ]
+    assert leagues[1]["season"] == 2025
+    assert leagues[1]["status"] == "complete"
+    assert leagues[1]["draft_id"] == str(previous_league_payload["draft_id"])
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_walk_league_chain_reuses_the_cached_starting_league_too(
+    client, previous_league_payload, tmp_path
+):
+    """The starting league itself is eligible for a cache hit, not just later hops."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    write_league_tables([previous_league_payload], db_path)
+
+    leagues = walk_league_chain(client, PREVIOUS_LEAGUE_ID, db_path=db_path)
+
+    assert len(leagues) == 1
+    assert leagues[0]["league_id"] == PREVIOUS_LEAGUE_ID
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_walk_league_chain_does_not_reuse_an_incomplete_cached_hop(
+    client, league_payload, previous_league_payload, tmp_path
+):
+    """A cached hop that isn't `"complete"` yet is still always fetched live."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    in_progress = dict(previous_league_payload)
+    in_progress["status"] = "in_season"
+    write_league_tables([in_progress], db_path)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+
+    leagues = walk_league_chain(client, LEAGUE_ID, db_path=db_path)
+
+    assert len(leagues) == 2
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_walk_league_chain_without_db_path_always_fetches_live(
+    client, league_payload, previous_league_payload, tmp_path
+):
+    """`db_path=None` (the default) preserves the original always-live behavior."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    write_league_tables([previous_league_payload], db_path)
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+    responses.get(
+        f"{TEST_BASE_URL}/v1/league/{PREVIOUS_LEAGUE_ID}", json=previous_league_payload
+    )
+
+    leagues = walk_league_chain(client, LEAGUE_ID)
+
+    assert len(leagues) == 2
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_walk_league_chain_cached_hop_without_a_parsed_config_gets_no_draft_id(
+    client, league_payload, previous_league_payload, tmp_path
+):
+    """A cached hop with a raw row but no `sleeper_league_configs` row (its
+    config failed to parse) reconstructs with `draft_id=None` rather than
+    raising."""
+    db_path = tmp_path / "nuclearff.duckdb"
+    unparseable = dict(previous_league_payload)
+    del unparseable["season"]
+    raw_count, config_count = write_league_tables([unparseable], db_path)
+    assert raw_count == 1
+    assert config_count == 0
+    responses.get(f"{TEST_BASE_URL}/v1/league/{LEAGUE_ID}", json=league_payload)
+
+    leagues = walk_league_chain(client, LEAGUE_ID, db_path=db_path)
+
+    assert leagues[1]["league_id"] == PREVIOUS_LEAGUE_ID
+    assert leagues[1]["draft_id"] is None
+    assert len(responses.calls) == 1
+
+
 # --- league_type_name -----------------------------------------------------
 
 
