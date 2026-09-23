@@ -7,6 +7,13 @@ Parquet, publisher, cache, and DuckDB-repository layers described in the
 epic are not implemented yet.
 """
 
+from nuclearff.data.cache import (
+    cache_path,
+    ensure_cached,
+    materialize_manifest,
+    prune_cache,
+    resolve_latest_manifest,
+)
 from nuclearff.data.config import StorageConfig, StorageProvider
 from nuclearff.data.datasets import PLAYER_WEEK_SCHEMA
 from nuclearff.data.keys import (
@@ -32,12 +39,17 @@ __all__ = [
     "ParquetArtifact",
     "StorageConfig",
     "StorageProvider",
+    "cache_path",
+    "ensure_cached",
     "format_partitions",
     "history_manifest_key",
     "latest_manifest_key",
     "manifest_json_schema",
+    "materialize_manifest",
     "object_key",
+    "prune_cache",
     "release_manifest_key",
+    "resolve_latest_manifest",
     "run_id",
     "validate_frame",
     "validate_key",
