@@ -6,9 +6,13 @@ table (historical, from played games) with
 have no stat rows yet) to rank how favorable a team's remaining schedule is
 at a given position.
 
-Built for issue #105; issue #106 (playoff schedule strength) reuses this
-module's output over a narrower week window rather than recomputing
-anything.
+Built for issue #105; :func:`playoff_strength_of_schedule` (issue #106)
+reuses :func:`strength_of_schedule` entirely over a narrower week window
+(the league's real fantasy-playoff weeks,
+:meth:`nuclearff.config.league.LeagueConfig.playoff_weeks`) rather than
+recomputing anything -- a draft-time consideration distinct from the
+whole-remaining-season average, since a pick's value matters most for
+winning the fantasy playoffs specifically.
 """
 
 from __future__ import annotations
@@ -73,3 +77,42 @@ def strength_of_schedule(
     if not values:
         return None
     return sum(values) / len(values)
+
+
+def playoff_strength_of_schedule(
+    team: str,
+    position: str,
+    dvp: pl.DataFrame,
+    schedules: pl.DataFrame,
+    season: int,
+    playoff_weeks: list[int] | None,
+) -> float | None:
+    """Average fantasy-*playoff*-week opponent points-allowed at ``position``.
+
+    Identical to :func:`strength_of_schedule`, scoped to
+    ``playoff_weeks`` instead of the whole remaining season — no new DvP
+    computation, per issue #106's own instruction.
+
+    Args:
+        team: The candidate player's real NFL team abbreviation.
+        position: The candidate's position.
+        dvp: Rows as returned by
+            :func:`nuclearff.matchups.dvp.points_allowed_by_position`.
+        schedules: Rows as returned by
+            :func:`nuclearff.nflverse.schedules.load_schedules`.
+        season: The season to evaluate.
+        playoff_weeks: The league's real fantasy-playoff week numbers, from
+            :meth:`nuclearff.config.league.LeagueConfig.playoff_weeks`.
+            ``None`` if that couldn't be resolved (missing
+            ``playoff_week_start``/``playoff_teams``) — not guessed at a
+            placeholder range like "15-17".
+
+    Returns:
+        Same semantics as :func:`strength_of_schedule`. ``None`` if
+        ``playoff_weeks`` is ``None`` or empty, matching this project's
+        "don't guess" posture for missing playoff-range data (see
+        :meth:`~nuclearff.config.league.LeagueConfig.playoff_weeks`).
+    """
+    if not playoff_weeks:
+        return None
+    return strength_of_schedule(team, position, dvp, schedules, season, playoff_weeks)
