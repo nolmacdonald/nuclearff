@@ -327,6 +327,57 @@ def test_league_config_playoff_week_start_defaults_to_none():
     assert cfg.playoff_week_start is None
 
 
+def test_league_config_playoff_teams_defaults_to_none():
+    """Same backward-compatibility as playoff_week_start, for playoff_teams."""
+    cfg = _league_config()
+
+    assert cfg.playoff_teams is None
+
+
+# --- LeagueConfig.playoff_weeks() -----------------------------------------
+
+
+def test_playoff_weeks_combines_start_and_bracket_size():
+    """A 6-team bracket spans 3 real weeks: ceil(log2(6)) rounds, starting
+    at playoff_week_start -- issue #106's own acceptance criterion, verified
+    against a non-default start week (14, not the common 15)."""
+    cfg = _league_config(playoff_week_start=14, playoff_teams=6)
+
+    assert cfg.playoff_weeks() == [14, 15, 16]
+
+
+def test_playoff_weeks_a_two_team_bracket_is_one_round():
+    cfg = _league_config(playoff_week_start=17, playoff_teams=2)
+
+    assert cfg.playoff_weeks() == [17]
+
+
+def test_playoff_weeks_a_four_team_bracket_is_two_rounds():
+    cfg = _league_config(playoff_week_start=15, playoff_teams=4)
+
+    assert cfg.playoff_weeks() == [15, 16]
+
+
+def test_playoff_weeks_is_none_without_a_start_week():
+    cfg = _league_config(playoff_week_start=None, playoff_teams=6)
+
+    assert cfg.playoff_weeks() is None
+
+
+def test_playoff_weeks_is_none_without_a_bracket_size():
+    cfg = _league_config(playoff_week_start=15, playoff_teams=None)
+
+    assert cfg.playoff_weeks() is None
+
+
+def test_playoff_weeks_is_none_for_a_bracket_too_small_to_be_real():
+    """A one-team "bracket" isn't a real playoff -- same not-guessed posture
+    as every other missing-data case here."""
+    cfg = _league_config(playoff_week_start=15, playoff_teams=1)
+
+    assert cfg.playoff_weeks() is None
+
+
 # --- league_config_from_sleeper: the real fixture (acceptance benchmark) --
 
 
@@ -393,6 +444,35 @@ def test_league_config_from_real_fixture_has_real_playoff_week_start(league_payl
     cfg = league_config_from_sleeper(league_payload)
 
     assert cfg.playoff_week_start == 15
+
+
+def test_league_config_from_real_fixture_has_real_playoff_teams(league_payload):
+    """The real committed fixture's playoff_teams (6) is parsed through, and
+    combines with playoff_week_start (15) into the real 3-week bracket
+    range -- issue #106's own acceptance benchmark."""
+    cfg = league_config_from_sleeper(league_payload)
+
+    assert cfg.playoff_teams == 6
+    assert cfg.playoff_weeks() == [15, 16, 17]
+
+
+def test_league_config_from_sleeper_missing_playoff_teams_is_none():
+    """A league missing playoff_teams (e.g. Chopped) resolves to None."""
+    payload = _payload_without_playoff_week_start()  # also has no playoff_teams
+
+    cfg = league_config_from_sleeper(payload)
+
+    assert cfg.playoff_teams is None
+
+
+def test_league_config_from_sleeper_rejects_non_positive_playoff_teams():
+    """A malformed (0 or negative) playoff_teams coerces to None, not a bad int."""
+    payload = _payload_without_playoff_week_start()
+    payload["settings"] = {"num_teams": 10, "playoff_teams": 0}
+
+    cfg = league_config_from_sleeper(payload)
+
+    assert cfg.playoff_teams is None
 
 
 def test_league_config_from_sleeper_missing_playoff_week_start_is_none():

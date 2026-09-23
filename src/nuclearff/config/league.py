@@ -28,6 +28,7 @@ committed fixture) are unchanged.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -369,6 +370,11 @@ class LeagueConfig(BaseModel):
             guessed at a default like week 15, since real leagues vary this
             setting (see issues #106/#110/#113/#137, which all
             independently hit this same gap).
+        playoff_teams: Number of teams in the playoff bracket, from
+            Sleeper's own ``settings.playoff_teams``. Paired with
+            ``playoff_week_start`` by :meth:`playoff_weeks` to derive the
+            real playoff week range. ``None`` under the same conditions as
+            ``playoff_week_start``.
 
     """
 
@@ -385,6 +391,35 @@ class LeagueConfig(BaseModel):
     draft_id: str | None
     previous_league_id: str | None
     playoff_week_start: int | None = None
+    playoff_teams: int | None = None
+
+    def playoff_weeks(self) -> list[int] | None:
+        """Return the league's real fantasy-playoff week numbers.
+
+        Derived from ``playoff_week_start`` and the number of
+        single-elimination rounds implied by ``playoff_teams``
+        (``ceil(log2(playoff_teams))``) — e.g. a 6-team bracket still spans
+        3 real weeks even though the top 2 seeds get a first-round bye,
+        because the bye removes a *matchup*, not a *round*. Returns
+        ``None`` if either input isn't resolvable, rather than guessing a
+        fixed range like "15-17" (see issues #106/#110/#113/#137).
+
+        Known limitation: does not account for Sleeper's
+        ``settings.playoff_round_type`` (a league whose championship round
+        spans two real weeks would need an extra week here). Not confirmed
+        against real Sleeper behavior for every ``playoff_round_type``
+        value, so left as a stated gap rather than a guessed adjustment.
+
+        Returns:
+            Consecutive week numbers starting at ``playoff_week_start``, or
+            ``None``.
+        """
+        if self.playoff_week_start is None or not self.playoff_teams:
+            return None
+        if self.playoff_teams < 2:
+            return None
+        rounds = math.ceil(math.log2(self.playoff_teams))
+        return list(range(self.playoff_week_start, self.playoff_week_start + rounds))
 
     def starter_demand(
         self,
@@ -548,6 +583,11 @@ def league_config_from_sleeper(league_json: dict[str, Any]) -> LeagueConfig:
         # field's own docstring.
         playoff_week_start = None
 
+    playoff_teams = settings.get("playoff_teams")
+    if not isinstance(playoff_teams, int) or playoff_teams <= 0:
+        # Same "Chopped" gap and same posture as playoff_week_start above.
+        playoff_teams = None
+
     try:
         return LeagueConfig(
             league_id=str(league_json["league_id"]),
@@ -563,6 +603,7 @@ def league_config_from_sleeper(league_json: dict[str, Any]) -> LeagueConfig:
                 str(previous_league_id) if previous_league_id else None
             ),
             playoff_week_start=playoff_week_start,
+            playoff_teams=playoff_teams,
         )
     except (KeyError, TypeError, ValueError, ValidationError) as exc:
         raise ConfigError(
