@@ -1,6 +1,7 @@
 """Command-line interface for nuclearff.
 
-Commands are grouped by concern (``config``, ``sleeper``, ``ids``, ``report``).
+Commands are grouped by concern (``config``, ``sleeper``, ``data``, ``ids``,
+``report``).
 Every command reads its settings from a configuration file so that a run can
 be reproduced from a git SHA plus a config, and every command returns an
 exit code rather than calling :func:`sys.exit` directly, which keeps them
@@ -14,6 +15,7 @@ import json
 import logging
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 import polars as pl
@@ -23,6 +25,26 @@ from nuclearff.config import default_config, dump_config, load_config
 from nuclearff.config.league import dump_league_config, league_config_from_sleeper
 from nuclearff.config.loader import to_yaml
 from nuclearff.config.models import NuclearffConfig
+from nuclearff.data import (
+    PLAYER_WEEK_SCHEMA,
+    DataManifest,
+    ManifestObject,
+    ObjectStore,
+    StorageConfig,
+    build_player_week,
+    clear_staging,
+    current_season,
+    fetch_player_week,
+    materialize_manifest,
+    object_key,
+    publish_release,
+    release_artifact,
+    resolve_latest_manifest,
+    rollback_to,
+    run_id,
+    staging_dir,
+    write_parquet_artifact,
+)
 from nuclearff.exceptions import NuclearffError, StorageError
 from nuclearff.ids import (
     ambiguous_sleeper_ids,
@@ -33,6 +55,7 @@ from nuclearff.ids import (
 from nuclearff.logging_config import configure_logging
 from nuclearff.nflverse import configure_cache as configure_nflverse_cache
 from nuclearff.nflverse import load_ff_playerids
+from nuclearff.provenance import git_commit_sha
 from nuclearff.sleeper import (
     SleeperClient,
     crawl_user_network,
@@ -552,6 +575,172 @@ def _cmd_sleeper_trending(args: argparse.Namespace) -> int:
             "\n(Player names unresolved -- run `nuclearff sleeper fetch-players` "
             "first.)"
         )
+    return EXIT_OK
+
+
+def _cmd_data_publish(args: argparse.Namespace) -> int:
+    """Fetch, build, and publish one season's ``player_week`` release.
+
+    Guide §§10-11 (GitHub Issue 182): fetches nflverse weekly stats, narrows
+    and validates them against ``PLAYER_WEEK_SCHEMA``, writes a local
+    Parquet artifact, then publishes it as a new release -- unless
+    ``--dry-run``, which stops after the local, already-validated Parquet
+    file and never touches the object store or requires ``STORAGE_*``
+    credentials. That is the guide's own local-first verification step
+    (build against ``STORAGE_PREFIX=dev`` credentials before ever
+    publishing for real), and also the only path this command supports
+    without live R2/S3 access at all.
+
+    Args:
+        args: Parsed arguments carrying ``season``, ``through_week``, and
+            ``dry_run``. ``season`` of ``None`` resolves via
+            :func:`nuclearff.data.player_week.current_season` -- so the
+            scheduled publish workflow needs no manual per-season update.
+
+    Returns:
+        An exit code.
+    """
+    config = _resolve_config(args)
+    config.paths.ensure()
+
+    season = args.season if args.season is not None else current_season()
+
+    raw = fetch_player_week([season])
+    frame = build_player_week(raw, through_week=args.through_week)
+
+    now = datetime.now(tz=UTC)
+    git_sha = git_commit_sha() or "0" * 7
+    release_id = run_id(now, git_sha)
+
+    # PathsConfig.data is the bare configured field (e.g. "data"), not
+    # resolved against paths.root the way raw_dir/cache_dir/etc. are -- match
+    # PathsConfig._under_data's own resolution rather than staging under cwd.
+    data_root = config.paths.data
+    if not data_root.is_absolute():
+        data_root = (config.paths.root / data_root).resolve()
+    stage = staging_dir(data_root, release_id)
+    parquet_path = stage / "curated" / "player_week" / "part-000.parquet"
+    artifact = write_parquet_artifact(frame, parquet_path, schema=PLAYER_WEEK_SCHEMA)
+    print(f"Built player_week: {artifact.row_count} rows -> {artifact.path}")
+
+    if args.dry_run:
+        print(f"Dry run: staged at {stage}, not published")
+        return EXIT_OK
+
+    storage_config = StorageConfig.from_env()
+    store = ObjectStore(storage_config)
+
+    key = object_key(
+        storage_config.prefix,
+        "releases",
+        release_id,
+        "curated",
+        "player_week",
+        filename="part-000.parquet",
+        partitions={"season": season},
+    )
+    artifact_for_release = release_artifact(artifact, key=key)
+    manifest = DataManifest(
+        schema_version=1,
+        run_id=release_id,
+        created_at_utc=now,
+        git_sha=git_commit_sha(),
+        season=season,
+        objects=[
+            ManifestObject(
+                dataset="player_week",
+                key=key,
+                content_type=artifact_for_release.content_type,
+                size_bytes=artifact.size_bytes,
+                sha256=artifact.sha256,
+                row_count=artifact.row_count,
+                schema_version=1,
+                partitions={"season": str(season)},
+            )
+        ],
+    )
+
+    publish_release(store, storage_config.prefix, [artifact_for_release], manifest)
+    clear_staging(stage)
+
+    print(f"Published release {release_id} ({artifact.row_count} rows)")
+    return EXIT_OK
+
+
+def _cmd_data_verify_latest(args: argparse.Namespace) -> int:
+    """Print the currently published release's manifest.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    storage_config = StorageConfig.from_env()
+    store = ObjectStore(storage_config)
+    manifest = resolve_latest_manifest(store, storage_config.prefix)
+
+    print(f"run_id={manifest.run_id} created_at={manifest.created_at_utc}")
+    for obj in manifest.objects:
+        print(f"  {obj.dataset:<12} {obj.row_count:>6} rows  {obj.key}")
+    return EXIT_OK
+
+
+def _cmd_data_materialize(args: argparse.Namespace) -> int:
+    """Download and verify every object in the current release into the local cache.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    storage_config = StorageConfig.from_env()
+    store = ObjectStore(storage_config)
+    manifest = resolve_latest_manifest(store, storage_config.prefix)
+    materialized = materialize_manifest(store, storage_config.cache_dir, manifest)
+
+    for key, local_path in materialized.items():
+        print(f"{key} -> {local_path}")
+    return EXIT_OK
+
+
+def _cmd_data_list_releases(args: argparse.Namespace) -> int:
+    """List every published release's run_id, oldest first.
+
+    Args:
+        args: Parsed arguments.
+
+    Returns:
+        An exit code.
+    """
+    storage_config = StorageConfig.from_env()
+    store = ObjectStore(storage_config)
+    history_prefix = f"{storage_config.prefix}/manifests/history/"
+
+    release_ids = sorted(
+        key.removeprefix(history_prefix).removesuffix(".json")
+        for key in store.iter_keys(history_prefix)
+    )
+    for release_id in release_ids:
+        print(release_id)
+    return EXIT_OK
+
+
+def _cmd_data_rollback(args: argparse.Namespace) -> int:
+    """Point ``latest.json`` back at a previously published release.
+
+    Args:
+        args: Parsed arguments carrying ``run_id``.
+
+    Returns:
+        An exit code.
+    """
+    storage_config = StorageConfig.from_env()
+    store = ObjectStore(storage_config)
+    manifest = rollback_to(store, storage_config.prefix, args.run_id)
+
+    print(f"latest.json now points at run_id={manifest.run_id}")
     return EXIT_OK
 
 
@@ -2118,6 +2307,59 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit", type=int, default=25, help="Maximum players to return"
     )
     trending.set_defaults(func=_cmd_sleeper_trending)
+
+    data_parser = groups.add_parser(
+        "data", help="Cloud data platform: publish and consume curated datasets"
+    )
+    data_commands = data_parser.add_subparsers(dest="command", metavar="<command>")
+    data_commands.required = True
+
+    data_publish = data_commands.add_parser(
+        "publish", help="Fetch, build, and publish one season's player_week release"
+    )
+    data_publish.add_argument(
+        "--season",
+        type=int,
+        default=None,
+        help=(
+            "Season year, e.g. 2026 (default: the current NFL season, "
+            "inferred from today's date)"
+        ),
+    )
+    data_publish.add_argument(
+        "--through-week",
+        type=int,
+        default=None,
+        help="Keep weeks 1..--through-week only (default: every available week)",
+    )
+    data_publish.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Build and validate locally; do not publish to the object store",
+    )
+    data_publish.set_defaults(func=_cmd_data_publish)
+
+    data_verify_latest = data_commands.add_parser(
+        "verify-latest", help="Print the currently published release's manifest"
+    )
+    data_verify_latest.set_defaults(func=_cmd_data_verify_latest)
+
+    data_materialize = data_commands.add_parser(
+        "materialize",
+        help="Download and verify the current release's objects into the local cache",
+    )
+    data_materialize.set_defaults(func=_cmd_data_materialize)
+
+    data_list_releases = data_commands.add_parser(
+        "list-releases", help="List every published release's run_id"
+    )
+    data_list_releases.set_defaults(func=_cmd_data_list_releases)
+
+    data_rollback = data_commands.add_parser(
+        "rollback", help="Point latest.json back at a previously published release"
+    )
+    data_rollback.add_argument("run_id", help="The release to make current again")
+    data_rollback.set_defaults(func=_cmd_data_rollback)
 
     ids_parser = groups.add_parser(
         "ids", help="Cross-source player identity resolution"

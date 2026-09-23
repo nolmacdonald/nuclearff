@@ -28,6 +28,11 @@ from nuclearff.data.keys import (
 from nuclearff.data.manifest import DataManifest, ManifestObject, manifest_json_schema
 from nuclearff.data.object_store import ObjectStore
 from nuclearff.data.parquet import ParquetArtifact, write_parquet_artifact
+from nuclearff.data.player_week import (
+    build_player_week,
+    current_season,
+    fetch_player_week,
+)
 from nuclearff.data.publisher import (
     ReleaseArtifact,
     clear_staging,
@@ -54,11 +59,14 @@ __all__ = [
     "ReleaseArtifact",
     "StorageConfig",
     "StorageProvider",
+    "build_player_week",
     "cache_path",
     "clear_staging",
     "connect_analytics",
+    "current_season",
     "dataset_paths",
     "ensure_cached",
+    "fetch_player_week",
     "format_partitions",
     "history_manifest_key",
     "latest_manifest_key",

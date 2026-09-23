@@ -1,0 +1,81 @@
+name: Data Publish
+
+# Publishes the `player_week` curated dataset (GitHub Issue 189; cloud data
+# platform epic #182) to R2/S3 via `nuclearff data publish`. The season
+# defaults to `nuclearff.data.player_week.current_season()` (inferred from
+# today's date -- see GitHub Issue 189's follow-up discussion), so the
+# scheduled run below needs no manual per-season update. `--season` stays
+# available as a manual override, for backfills or if the auto-detected
+# season is ever wrong.
+
+on:
+  schedule:
+    # Tuesday 09:00 UTC: after Monday Night Football's stats are final in
+    # nflverse, before most weekly fantasy analysis for the week happens.
+    - cron: "0 9 * * 2"
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season to publish (default: auto-detected from today's date)"
+        required: false
+        type: string
+      through_week:
+        description: "Publish weeks 1..N only (default: every available week)"
+        required: false
+        type: string
+      dry_run:
+        description: "Build and validate locally; do not publish"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: data-publish-production
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish player_week
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      # STORAGE_BUCKET/STORAGE_ENDPOINT_URL aren't sensitive, but they're
+      # provisioned as secrets (not variables) on this environment -- read
+      # from secrets.* to match what's actually there.
+      STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+      STORAGE_ENDPOINT_URL: ${{ secrets.STORAGE_ENDPOINT_URL }}
+      STORAGE_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY_ID }}
+      STORAGE_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_ACCESS_KEY }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Publish
+        env:
+          SEASON: ${{ inputs.season }}
+          THROUGH_WEEK: ${{ inputs.through_week }}
+        run: |
+          args=()
+          if [ -n "$SEASON" ]; then
+            args+=(--season "$SEASON")
+          fi
+          if [ -n "$THROUGH_WEEK" ]; then
+            args+=(--through-week "$THROUGH_WEEK")
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          uv run nuclearff data publish "${args[@]}"
