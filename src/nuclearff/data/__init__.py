@@ -28,6 +28,14 @@ from nuclearff.data.keys import (
 from nuclearff.data.manifest import DataManifest, ManifestObject, manifest_json_schema
 from nuclearff.data.object_store import ObjectStore
 from nuclearff.data.parquet import ParquetArtifact, write_parquet_artifact
+from nuclearff.data.publisher import (
+    ReleaseArtifact,
+    clear_staging,
+    publish_release,
+    release_artifact,
+    rollback_to,
+    staging_dir,
+)
 from nuclearff.data.schema import DatasetSchema, validate_frame
 
 __all__ = [
@@ -37,9 +45,11 @@ __all__ = [
     "ManifestObject",
     "ObjectStore",
     "ParquetArtifact",
+    "ReleaseArtifact",
     "StorageConfig",
     "StorageProvider",
     "cache_path",
+    "clear_staging",
     "ensure_cached",
     "format_partitions",
     "history_manifest_key",
@@ -48,9 +58,13 @@ __all__ = [
     "materialize_manifest",
     "object_key",
     "prune_cache",
+    "publish_release",
+    "release_artifact",
     "release_manifest_key",
     "resolve_latest_manifest",
+    "rollback_to",
     "run_id",
+    "staging_dir",
     "validate_frame",
     "validate_key",
     "write_parquet_artifact",
