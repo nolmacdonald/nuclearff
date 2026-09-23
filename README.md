@@ -1,14 +1,13 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/source/_static/logo/atom-color-dark-mode.svg">
-    <source media="(prefers-color-scheme: light)" srcset="docs/source/_static/logo/atom-color-light-mode.svg">
-    <img src="docs/source/_static/logo/atom-color-dark-mode.svg" width="160">
+    <source media="(prefers-color-scheme: dark)" srcset="https://nolmacdonald.github.io/nuclearff/_static/logo/atom-color-dark-mode.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://nolmacdonald.github.io/nuclearff/_static/logo/atom-color-light-mode.svg">
+    <img src="https://nolmacdonald.github.io/nuclearff/_static/logo/atom-color-dark-mode.svg" width="160">
   </picture>
 </p>
 
 <p align="center">
-<span style="color: #D8D8D8;"><strong>Nuclear Fantasy Football (NUCLEARFF)</strong></span>
-  
+  <strong>Nuclear Fantasy Football (NUCLEARFF)</strong>
 </p>
 
 <p align="center">
