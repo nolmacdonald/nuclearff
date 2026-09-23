@@ -36,6 +36,12 @@ from nuclearff.data.publisher import (
     rollback_to,
     staging_dir,
 )
+from nuclearff.data.repository import (
+    connect_analytics,
+    dataset_paths,
+    load_player_week,
+    read_parquet_paths,
+)
 from nuclearff.data.schema import DatasetSchema, validate_frame
 
 __all__ = [
@@ -50,15 +56,19 @@ __all__ = [
     "StorageProvider",
     "cache_path",
     "clear_staging",
+    "connect_analytics",
+    "dataset_paths",
     "ensure_cached",
     "format_partitions",
     "history_manifest_key",
     "latest_manifest_key",
+    "load_player_week",
     "manifest_json_schema",
     "materialize_manifest",
     "object_key",
     "prune_cache",
     "publish_release",
+    "read_parquet_paths",
     "release_artifact",
     "release_manifest_key",
     "resolve_latest_manifest",
