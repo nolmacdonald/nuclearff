@@ -81,6 +81,29 @@ class StorageError(NuclearffError):
         )
 
 
+class DataQualityError(NuclearffError):
+    """Raised when a curated dataset fails its pre-publication checks.
+
+    Covers every check :func:`nuclearff.data.schema.validate_frame` runs
+    against a :class:`~nuclearff.data.schema.DatasetSchema` — a missing or
+    mistyped column, a null in a non-nullable column, a duplicate natural
+    key, a value outside its declared range, or a row count outside its
+    declared bounds. Guide design posture: fail the workflow rather than
+    publish stale, empty, duplicate, or schema-invalid data.
+
+    Args:
+        dataset: The dataset name that failed validation.
+        message: What specifically was wrong.
+
+    Attributes:
+        dataset: The dataset name that failed validation.
+    """
+
+    def __init__(self, dataset: str, message: str) -> None:
+        self.dataset = dataset
+        super().__init__(f"Dataset {dataset!r} failed validation: {message}")
+
+
 class ObjectStoreError(NuclearffError):
     """Raised when an R2/S3 object-store operation fails or a key is unsafe.
 
