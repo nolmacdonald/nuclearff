@@ -38,17 +38,20 @@ from nuclearff.exceptions import ConfigError
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_FLEX_RATES: dict[str, float] = {"RB": 0.35, "WR": 0.50, "TE": 0.15}
+DEFAULT_FLEX_RATES: dict[str, float] = {"RB": 0.35, "WR": 0.50, "TE": 0.15}
 """Assumed share of a FLEX (WR/RB/TE) slot filled by each position, per week.
 
 Starting heuristics, not derived from real data (the same posture as
 ``bench_wr_fraction`` below) — sums to 1.0 across RB/WR/TE, the three
 FLEX-eligible positions. WR's rate (0.50) is the tool's original, unchanged
 default. Revisit once real roster/lineup data is available to calibrate the
-RB/TE split.
+RB/TE split. Public (not module-private) since
+:func:`nuclearff.draft.needs.roster_needs` (GitHub Issue 93) reuses these
+same rates for a single roster's remaining starter need, rather than
+re-deriving a second flex-allocation heuristic.
 """
 
-_DEFAULT_SUPERFLEX_RATES: dict[str, float] = {
+DEFAULT_SUPERFLEX_RATES: dict[str, float] = {
     "QB": 0.70,
     "RB": 0.10,
     "WR": 0.15,
@@ -401,17 +404,17 @@ class LeagueConfig(BaseModel):
             position: The position to compute starter demand for, e.g.
                 ``"QB"``, ``"RB"``, ``"WR"``, or ``"TE"``. An unrecognized
                 position falls back to ``0.0`` FLEX/SUPER_FLEX share (via
-                :data:`_DEFAULT_FLEX_RATES`/:data:`_DEFAULT_SUPERFLEX_RATES`)
+                :data:`DEFAULT_FLEX_RATES`/:data:`DEFAULT_SUPERFLEX_RATES`)
                 and whatever locked slot count :meth:`RosterSlots.count`
                 returns (``0`` if the league has none), the same graceful
                 degradation :meth:`RosterSlots.count` itself uses.
             flex_rate: Assumed fraction of FLEX slots filled by ``position``
                 in an average week. Defaults to
-                :data:`_DEFAULT_FLEX_RATES` for ``position``, or ``0.0`` for
+                :data:`DEFAULT_FLEX_RATES` for ``position``, or ``0.0`` for
                 a position with no default (e.g. ``"QB"``, which is not
                 FLEX-eligible in a standard WR/RB/TE flex).
             superflex_rate: Assumed fraction of SUPER_FLEX slots filled by
-                ``position``. Defaults to :data:`_DEFAULT_SUPERFLEX_RATES`
+                ``position``. Defaults to :data:`DEFAULT_SUPERFLEX_RATES`
                 for ``position``, or ``0.0``.
 
         Returns:
@@ -419,9 +422,9 @@ class LeagueConfig(BaseModel):
             league.
         """
         if flex_rate is None:
-            flex_rate = _DEFAULT_FLEX_RATES.get(position, 0.0)
+            flex_rate = DEFAULT_FLEX_RATES.get(position, 0.0)
         if superflex_rate is None:
-            superflex_rate = _DEFAULT_SUPERFLEX_RATES.get(position, 0.0)
+            superflex_rate = DEFAULT_SUPERFLEX_RATES.get(position, 0.0)
 
         return self.num_teams * (
             self.roster.count(position)
