@@ -750,6 +750,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dump_config(cfg, "./demo/configs/nuclearff.yaml")` cell writes a path
   neither the existing bare `data/` pattern nor `**/configs/leagues/`
   covers.
+- `nuclearff.nflverse.schedules.games_on_date`: filters `load_schedules`'
+  output to games on one calendar date, for the dashboard's new Lineups page
+  (`nuclearff_dashboard`, lineup management against today's real NFL games).
+- `nuclearff.sleeper.users.find_user_roster`, exported from
+  `nuclearff.sleeper`: finds the one roster a user owns or co-owns in a
+  league's raw roster list, checking both `owner_id` and `co_owners` -- the
+  same lookup `roster_owners` resolves to display names, but returning the
+  full roster object itself so a caller can read its `starters`/`players`
+  directly.
 
 ### Changed
 

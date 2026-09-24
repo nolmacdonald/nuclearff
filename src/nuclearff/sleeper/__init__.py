@@ -55,7 +55,7 @@ from nuclearff.sleeper.transactions import (
     transaction_player_rows,
     transaction_rows,
 )
-from nuclearff.sleeper.users import roster_owners
+from nuclearff.sleeper.users import find_user_roster, roster_owners
 
 __all__ = [
     "Anomaly",
@@ -78,6 +78,7 @@ __all__ = [
     "fetch_and_write_standings",
     "fetch_and_write_transactions",
     "fetch_league_snapshot",
+    "find_user_roster",
     "league_config_rows",
     "league_rows",
     "load_trades",
