@@ -750,6 +750,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dump_config(cfg, "./demo/configs/nuclearff.yaml")` cell writes a path
   neither the existing bare `data/` pattern nor `**/configs/leagues/`
   covers.
+- `nuclearff.metrics.passing` (GitHub Issue 214, part of epic #213 — QB
+  year-over-year decline analysis): `fantasy_point_breakdown` (splits actual
+  fantasy points into passing/rushing/turnover components that sum to
+  exactly the same total `ScoringEngine.score_frame` would produce, not an
+  approximation of it — confirmed live against real Baker Mayfield 2025
+  weekly stats, 17/17 weeks, max diff `0.0`), `volume_efficiency_split`
+  (dropbacks, EPA/dropback, success rate, CPOE, PROE), `neutral_pass_rate`
+  (team-level, quarters 1-3 and within one score, both documented modeling
+  choices), and `defense_epa_per_dropback` (opponent context). Play-action/
+  RPO/motion rates via the verified `load_pbp`/`load_ftn_charting` join, and
+  pace, are the rest of Issue 214's scope and not yet built.
+- `ScoringEngine.score_frame_by_group` (`nuclearff.scoring.engine`): splits
+  `score_frame`'s vectorized scoring into caller-named subtotals (e.g.
+  "passing", "turnovers") that are guaranteed to sum to exactly the same
+  `fantasy_points` total, because both are built from the same per-key terms
+  (`ScoringEngine._terms`, extracted from the existing `score_frame` with no
+  change to its own behavior). Built for, and used by,
+  `metrics.passing.fantasy_point_breakdown`.
 
 ### Changed
 

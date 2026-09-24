@@ -276,3 +276,98 @@ def test_score_frame_without_position_column_skips_position_bonuses() -> None:
     scored = engine.score_frame(df)
 
     assert scored["fantasy_points"].to_list() == pytest.approx([4.0])
+
+
+# --- score_frame_by_group -----------------------------------------------------
+
+
+def test_score_frame_by_group_subtotals_sum_to_the_real_total() -> None:
+    """The core guarantee: partitioning every handled key across groups
+    produces subtotals that sum to exactly the same fantasy_points
+    score_frame itself would compute — not an approximation of it, because
+    both are built from the same per-key terms (see _terms).
+    """
+    scoring = _rich_scoring()
+    engine = ScoringEngine(scoring)
+    df = _synthetic_weekly_frame()
+
+    grouped = engine.score_frame_by_group(
+        df,
+        {
+            "receiving": [
+                "rec",
+                "rec_yd",
+                "rec_td",
+                "bonus_rec_yd_100",
+                "bonus_rec_te",
+            ],
+            "rushing": ["rush_yd", "bonus_rush_att_20", "bonus_rush_rec_yd_100"],
+            "turnovers": ["fum_lost"],
+        },
+    )
+
+    subtotal = (
+        grouped["receiving"] + grouped["rushing"] + grouped["turnovers"]
+    ).to_list()
+    assert subtotal == pytest.approx(grouped["fantasy_points"].to_list())
+
+
+def test_score_frame_by_group_matches_score_frame_exactly() -> None:
+    """score_frame_by_group's own fantasy_points column is identical to
+    calling score_frame directly — grouping is additive, not a different
+    scoring path."""
+    scoring = _rich_scoring()
+    engine = ScoringEngine(scoring)
+    df = _synthetic_weekly_frame()
+
+    plain = engine.score_frame(df)
+    grouped = engine.score_frame_by_group(df, {"receiving": ["rec"]})
+
+    assert grouped["fantasy_points"].to_list() == pytest.approx(
+        plain["fantasy_points"].to_list()
+    )
+
+
+def test_score_frame_by_group_a_key_in_no_group_still_counts_toward_the_total() -> None:
+    """rush_yd isn't assigned to any group here, but it must still count
+    toward fantasy_points — grouping only controls what's broken out, never
+    what's scored."""
+    scoring = _settings(rec=1.0, rush_yd=0.1)
+    engine = ScoringEngine(scoring)
+    df = pl.DataFrame({"receptions": [4], "rushing_yards": [50]})
+
+    grouped = engine.score_frame_by_group(df, {"receiving": ["rec"]})
+
+    assert grouped["fantasy_points"].to_list() == pytest.approx([4 * 1.0 + 50 * 0.1])
+    assert grouped["receiving"].to_list() == pytest.approx([4.0])
+
+
+def test_score_frame_by_group_rejects_a_key_double_counted_across_groups() -> None:
+    scoring = _settings(rec=1.0)
+    engine = ScoringEngine(scoring)
+    df = pl.DataFrame({"receptions": [4]})
+
+    with pytest.raises(ValueError, match="rec.*appears in both"):
+        engine.score_frame_by_group(df, {"a": ["rec"], "b": ["rec"]})
+
+
+def test_score_frame_by_group_rejects_an_unhandled_key() -> None:
+    """def_td has no mapping at all (no defense stat source in this
+    project) — score_frame_by_group must reject it explicitly rather than
+    silently contributing zero under a group name that implies it counted."""
+    scoring = _settings(rec=1.0, def_td=6.0)
+    engine = ScoringEngine(scoring)
+    df = pl.DataFrame({"receptions": [4]})
+
+    with pytest.raises(ValueError, match="def_td"):
+        engine.score_frame_by_group(df, {"defense": ["def_td"]})
+
+
+def test_score_frame_by_group_empty_group_scores_zero() -> None:
+    scoring = _settings(rec=1.0)
+    engine = ScoringEngine(scoring)
+    df = pl.DataFrame({"receptions": [4]})
+
+    grouped = engine.score_frame_by_group(df, {"nothing": []})
+
+    assert grouped["nothing"].to_list() == pytest.approx([0.0])
