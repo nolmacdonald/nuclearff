@@ -92,6 +92,7 @@ logs.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 import polars as pl
@@ -228,6 +229,83 @@ class ScoringEngine:
 
         return total
 
+    def _terms(self, df: pl.DataFrame) -> list[tuple[str, pl.Expr]]:
+        """Build one ``(sleeper_key, weighted_term)`` pair per handled scoring key.
+
+        The shared basis for both :meth:`score_frame` (sums every term) and
+        :meth:`score_frame_by_group` (sums caller-chosen subsets of them) —
+        extracted so the two can never drift apart into two different
+        notions of "how many points did this key contribute."
+
+        Args:
+            df: See :meth:`score_frame`.
+
+        Returns:
+            One entry per key in :data:`_HANDLED_KEYS` actually applicable
+            to ``df`` (every key, since a missing stat column or absent
+            ``"position"`` column just makes that key's own term evaluate to
+            zero rather than being omitted) — summing every term's ``pl.Expr``
+            reproduces :meth:`score_frame`'s exact ``"fantasy_points"``
+            column.
+        """
+        present = set(df.columns)
+
+        def stat(column: str) -> pl.Expr:
+            if column not in present:
+                return pl.lit(0.0)
+            return pl.col(column).fill_null(0)
+
+        terms: list[tuple[str, pl.Expr]] = []
+
+        for sleeper_key, column in _LINEAR_MAP.items():
+            terms.append((sleeper_key, self._scoring.get(sleeper_key) * stat(column)))
+
+        for sleeper_key, columns in _COMPOSITE_MAP.items():
+            summed = stat(columns[0])
+            for column in columns[1:]:
+                summed = summed + stat(column)
+            terms.append((sleeper_key, self._scoring.get(sleeper_key) * summed))
+
+        for sleeper_key, column, threshold in _SINGLE_COLUMN_THRESHOLDS:
+            coeff = self._scoring.get(sleeper_key)
+            terms.append(
+                (
+                    sleeper_key,
+                    pl.when(stat(column) >= threshold)
+                    .then(pl.lit(coeff))
+                    .otherwise(pl.lit(0.0)),
+                )
+            )
+
+        for sleeper_key, columns, threshold in _COMBINED_COLUMN_THRESHOLDS:
+            coeff = self._scoring.get(sleeper_key)
+            summed = stat(columns[0]) + stat(columns[1])
+            terms.append(
+                (
+                    sleeper_key,
+                    pl.when(summed >= threshold)
+                    .then(pl.lit(coeff))
+                    .otherwise(pl.lit(0.0)),
+                )
+            )
+
+        if "position" in present:
+            for sleeper_key, bonus_position in _POSITION_RECEPTION_BONUS.items():
+                coeff = self._scoring.get(sleeper_key)
+                terms.append(
+                    (
+                        sleeper_key,
+                        pl.when(pl.col("position") == bonus_position)
+                        .then(stat("receptions") * coeff)
+                        .otherwise(pl.lit(0.0)),
+                    )
+                )
+        else:
+            for sleeper_key in _POSITION_RECEPTION_BONUS:
+                terms.append((sleeper_key, pl.lit(0.0)))
+
+        return terms
+
     def score_frame(self, df: pl.DataFrame) -> pl.DataFrame:
         """Vectorized scoring of a stat DataFrame under this league's rules.
 
@@ -248,49 +326,78 @@ class ScoringEngine:
             already carry every column this engine looks for, but a
             synthetic or narrowed frame need not.
         """
-        present = set(df.columns)
+        terms = self._terms(df)
+        return df.with_columns(
+            pl.sum_horizontal(*(term for _, term in terms)).alias("fantasy_points")
+        )
 
-        def stat(column: str) -> pl.Expr:
-            if column not in present:
-                return pl.lit(0.0)
-            return pl.col(column).fill_null(0)
+    def score_frame_by_group(
+        self, df: pl.DataFrame, groups: dict[str, Sequence[str]]
+    ) -> pl.DataFrame:
+        """Vectorized scoring, split into named subtotals plus the real total.
 
-        terms: list[pl.Expr] = []
+        Built for a "what changed in the box score" breakdown (e.g.
+        :func:`nuclearff.metrics.passing.fantasy_point_breakdown`): rather
+        than one opaque ``fantasy_points`` number, a caller can partition
+        this league's scoring keys into semantic groups (``"passing"``,
+        ``"turnovers"``, ...) and get each group's own point contribution as
+        its own column — reusing :meth:`_terms`'s exact per-key terms, so a
+        caller whose ``groups`` values partition every key in
+        :data:`_HANDLED_KEYS` gets subtotals that sum to *exactly*
+        ``"fantasy_points"`` (the same column :meth:`score_frame` produces),
+        not an approximation of it.
 
-        for sleeper_key, column in _LINEAR_MAP.items():
-            terms.append(self._scoring.get(sleeper_key) * stat(column))
+        Args:
+            df: See :meth:`score_frame`.
+            groups: Group name -> the Sleeper scoring keys it covers (e.g.
+                ``{"passing": ["pass_yd", "pass_td", "pass_int"], ...}``).
+                A key absent from every group simply isn't broken out (it
+                still counts toward ``"fantasy_points"``); a key repeated
+                across groups would double-count it and is rejected.
 
-        for sleeper_key, columns in _COMPOSITE_MAP.items():
-            summed = stat(columns[0])
-            for column in columns[1:]:
-                summed = summed + stat(column)
-            terms.append(self._scoring.get(sleeper_key) * summed)
+        Returns:
+            ``df`` with one new column per key of ``groups`` (that group's
+            summed terms) plus ``"fantasy_points"`` (every handled key's
+            term, identical to :meth:`score_frame`'s own output) — so
+            ``sum(df[g] for g in groups) == df["fantasy_points"]`` exactly
+            whenever ``groups`` covers every key in :data:`_HANDLED_KEYS`.
 
-        for sleeper_key, column, threshold in _SINGLE_COLUMN_THRESHOLDS:
-            coeff = self._scoring.get(sleeper_key)
-            terms.append(
-                pl.when(stat(column) >= threshold)
-                .then(pl.lit(coeff))
-                .otherwise(pl.lit(0.0))
+        Raises:
+            ValueError: If the same scoring key appears in more than one
+                group.
+        """
+        seen: dict[str, str] = {}
+        for group_name, keys in groups.items():
+            for key in keys:
+                if key in seen:
+                    raise ValueError(
+                        f"score_frame_by_group: scoring key {key!r} appears in "
+                        f"both {seen[key]!r} and {group_name!r} — each key may "
+                        f"contribute to only one group, or it would be double-"
+                        f"counted."
+                    )
+                seen[key] = group_name
+
+        terms = dict(self._terms(df))
+        unknown = set(seen) - set(terms)
+        if unknown:
+            raise ValueError(
+                f"score_frame_by_group: {sorted(unknown)} are not scoring keys "
+                f"this engine handles (see ScoringEngine.unscored_keys for keys "
+                f"with a real, nonzero coefficient but no mapping)."
             )
 
-        for sleeper_key, columns, threshold in _COMBINED_COLUMN_THRESHOLDS:
-            coeff = self._scoring.get(sleeper_key)
-            summed = stat(columns[0]) + stat(columns[1])
-            terms.append(
-                pl.when(summed >= threshold).then(pl.lit(coeff)).otherwise(pl.lit(0.0))
-            )
-
-        if "position" in present:
-            for sleeper_key, bonus_position in _POSITION_RECEPTION_BONUS.items():
-                coeff = self._scoring.get(sleeper_key)
-                terms.append(
-                    pl.when(pl.col("position") == bonus_position)
-                    .then(stat("receptions") * coeff)
-                    .otherwise(pl.lit(0.0))
+        result = df.with_columns(
+            pl.sum_horizontal(*terms.values()).alias("fantasy_points")
+        )
+        for group_name, keys in groups.items():
+            group_terms = [terms[key] for key in keys]
+            result = result.with_columns(
+                (pl.sum_horizontal(*group_terms) if group_terms else pl.lit(0.0)).alias(
+                    group_name
                 )
-
-        return df.with_columns(pl.sum_horizontal(*terms).alias("fantasy_points"))
+            )
+        return result
 
     def unscored_keys(self) -> list[str]:
         """List nonzero scoring keys this engine has no mapping for at all.
