@@ -759,6 +759,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same lookup `roster_owners` resolves to display names, but returning the
   full roster object itself so a caller can read its `starters`/`players`
   directly.
+- `nuclearff.metrics.passing` (GitHub Issue 214, epic #213 — QB
+  year-over-year decline analysis, now complete): `fantasy_point_breakdown`
+  (splits actual fantasy points into passing/rushing/turnover components
+  that sum to exactly the same total `ScoringEngine.score_frame` would
+  produce, not an approximation of it — confirmed live against real Baker
+  Mayfield 2025 weekly stats, 17/17 weeks, max diff `0.0`),
+  `volume_efficiency_split` (dropbacks, EPA/dropback, success rate, CPOE,
+  PROE), `neutral_pass_rate` and `pace` (both team-level; quarters 1-3 and
+  within one score define "neutral situation" for both, a documented
+  modeling choice; `pace` is real game-clock time between a team's
+  consecutive same-drive plays, excluding gaps longer than the NFL's own
+  40-second play clock as clock stoppages rather than tempo),
+  `ftn_charting_rates` (play-action/RPO/screen/motion/blitz/out-of-pocket/
+  drop/catchable-ball/interception-worthy rates, joining `load_pbp` onto
+  `load_ftn_charting` — confirmed live the join keys need a dtype cast,
+  `pbp.play_id` is `Float64` vs. `ftn.nflverse_play_id`'s `Int32`, and that
+  with the cast every one of 20,886 real 2025 dropbacks league-wide found
+  exactly one charted match), and `defense_epa_per_dropback` (opponent
+  context).
+- `ScoringEngine.score_frame_by_group` (`nuclearff.scoring.engine`): splits
+  `score_frame`'s vectorized scoring into caller-named subtotals (e.g.
+  "passing", "turnovers") that are guaranteed to sum to exactly the same
+  `fantasy_points` total, because both are built from the same per-key terms
+  (`ScoringEngine._terms`, extracted from the existing `score_frame` with no
+  change to its own behavior). Built for, and used by,
+  `metrics.passing.fantasy_point_breakdown`.
+- `nuclearff.reference.coaching_staff` (GitHub Issue 215, part of epic #213):
+  `load_coaching_staff`/`join_coaching_staff` — a small, hand-curated,
+  cited CSV of coordinators/play-callers (nflverse tracks none), since
+  "what changed in the offense" needs to know who was calling plays.
+  Ships as real package data under `src/nuclearff/reference/` rather than
+  the issue's own suggested `data/reference/` path: this repo's
+  `.gitignore` matches a bare `data/` anywhere in the tree except the
+  `src/nuclearff/data/` package itself, so a repo-root `data/reference/`
+  file would have been silently untracked — confirmed via a real `uv build`
+  that the CSV lands in the wheel from its new home, which the issue's own
+  path would not have. Ships Tampa Bay's real OC history for 2022-2026,
+  verified live via web search this session (not transcribed from the
+  epic's own prose, which under-specifies the 2025 hire as just
+  "Grizzard" — independently confirmed and completed as Josh Grizzard,
+  promoted from pass-game coordinator in February 2025 and fired after the
+  season, not mid-season, in January 2026). Validation rejects a
+  placeholder/missing `source_url`, a null required field, and overlapping
+  week ranges for the same (season, team, role) — fails loudly on a
+  malformed row per the issue's own requirement, rather than silently
+  accepting one.
 
 ### Changed
 
