@@ -19,8 +19,8 @@
   </a>
   <a href="https://github.com/nolmacdonald/nuclearff">
     <img 
-      src="https://img.shields.io/badge/python-3.11%2B-777BB4?logo=python&logoColor=white" 
-      alt="Python >=3.11"
+      src="https://img.shields.io/badge/python-3.12%2B-777BB4?logo=python&logoColor=white" 
+      alt="Python >=3.12"
     />
   </a>
   <img 
@@ -154,4 +154,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
 
 ## License
 
-Copyright (c) 2026 Nolan MacDonald. All rights reserved. See [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Nolan MacDonald.

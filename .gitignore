@@ -230,8 +230,8 @@ data/
 /configs/nuclearff.yaml
 **/configs/leagues/
 
-# nuclearff: downloaded images cached by dev/tables scripts (headshots, team logos)
-dev/tables/_cache/
+# nuclearff: local scratch scripts; deliberately never committed
+/dev/
 
 # nuclearff: examples/ notebooks' own generated run output -- `data/` above
 # already covers examples/demo/data/ (a bare pattern, matches anywhere), this

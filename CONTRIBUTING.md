@@ -106,7 +106,6 @@ required state is reviewable. Settings live under **Settings → Branches**,
 - Require status checks to pass before merging, and require branches to be up to
   date. Required checks:
   - `Lint and type check`
-  - `Test (Python 3.11)`
   - `Test (Python 3.12)`
   - `Test (Python 3.13)`
   - `Build distributions`

@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # -- Project information ------------------------------------------------------
 project = "nuclearff"
-copyright = "2026, Nolan MacDonald. All Rights Reserved"  # noqa: A001
+copyright = "2026, Nolan MacDonald"  # noqa: A001
 author = "Nolan MacDonald"
 # Derive release from the installed package to avoid version drift.
 release = _pkg_version("nuclearff")
