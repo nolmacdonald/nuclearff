@@ -75,3 +75,28 @@ def roster_owners(
         }
 
     return result
+
+
+def find_user_roster(
+    rosters: list[dict[str, Any]], user_id: str
+) -> dict[str, Any] | None:
+    """Find the one roster a user owns or co-owns in a league.
+
+    Args:
+        rosters: Raw roster objects, as returned by
+            :meth:`SleeperClient.get_rosters`.
+        user_id: The Sleeper user id to look for, matched against each
+            roster's ``owner_id`` and ``co_owners``.
+
+    Returns:
+        The first raw roster object where ``user_id`` is the owner or a
+        co-owner, or ``None`` if ``user_id`` holds no roster in ``rosters``
+        -- e.g. they left the league, or the id doesn't belong to a member.
+    """
+    for roster in rosters:
+        if roster.get("owner_id") == user_id:
+            return roster
+        co_owners = roster.get("co_owners")
+        if isinstance(co_owners, list) and user_id in co_owners:
+            return roster
+    return None

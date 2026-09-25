@@ -8,6 +8,8 @@ during live investigation for issue #105 (see the module docstring in
 
 from __future__ import annotations
 
+from datetime import date
+
 import polars as pl
 import pytest
 
@@ -61,3 +63,17 @@ def test_team_opponents_flattens_home_and_away():
         ("KC", "LAC"),
     }
     assert result.height == 4
+
+
+def test_games_on_date_filters_to_the_matching_gameday():
+    result = schedules.games_on_date(_schedule_df(), date(2025, 9, 7))
+
+    assert result.height == 2
+    assert set(result["home_team"].to_list()) == {"PHI", "LAC"}
+
+
+def test_games_on_date_returns_empty_frame_for_a_day_with_no_games():
+    result = schedules.games_on_date(_schedule_df(), date(2025, 9, 8))
+
+    assert result.height == 0
+    assert result.columns == _schedule_df().columns

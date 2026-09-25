@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import date
 
 import nflreadpy
 import polars as pl
@@ -99,3 +100,24 @@ def team_opponents(schedules: pl.DataFrame) -> pl.DataFrame:
         pl.col("home_team").alias("opponent"),
     )
     return pl.concat([home, away])
+
+
+def games_on_date(schedules: pl.DataFrame, on_date: date) -> pl.DataFrame:
+    """Filter schedules to games scheduled on one calendar date.
+
+    Args:
+        schedules: Rows as returned by :func:`load_schedules`.
+        on_date: The calendar date to match against ``gameday``, which
+            ``load_schedules`` returns as a plain ``YYYY-MM-DD`` string (see
+            the module docstring) -- compared here via
+            :meth:`date.isoformat`, not a ``pl.Date`` cast, so this makes no
+            assumption about ``gameday``'s dtype beyond "formats like
+            ``str(on_date)``."
+
+    Returns:
+        Rows from ``schedules`` whose ``gameday`` equals ``on_date``, same
+        columns, in their original order. Empty -- not an error -- on a day
+        with no games, which is most days: a real NFL week plays across only
+        3-4 distinct calendar dates.
+    """
+    return schedules.filter(pl.col("gameday") == on_date.isoformat())

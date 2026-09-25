@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nuclearff.sleeper.users import roster_owners
+from nuclearff.sleeper.users import find_user_roster, roster_owners
 
 ROSTERS = [
     {"roster_id": 1, "owner_id": "u1", "co_owners": None},
@@ -55,3 +55,30 @@ def test_roster_owners_skips_rosters_with_no_roster_id():
     owners = roster_owners([{"owner_id": "u1"}], USERS)
 
     assert owners == {}
+
+
+# --- find_user_roster --------------------------------------------------------
+
+
+def test_find_user_roster_matches_the_primary_owner():
+    roster = find_user_roster(ROSTERS, "u1")
+
+    assert roster is not None
+    assert roster["roster_id"] == 1
+
+
+def test_find_user_roster_matches_a_co_owner_not_just_the_primary():
+    roster = find_user_roster(ROSTERS, "u4")
+
+    assert roster is not None
+    assert roster["roster_id"] == 2
+
+
+def test_find_user_roster_returns_none_when_the_user_holds_no_roster():
+    assert find_user_roster(ROSTERS, "nobody") is None
+
+
+def test_find_user_roster_ignores_a_non_list_co_owners_field():
+    # A real data inconsistency (co_owners as `None`, not `[]`) must not
+    # raise -- `roster_owners` above already tolerates this same shape.
+    assert find_user_roster([{"roster_id": 9, "owner_id": "u1"}], "u9") is None
