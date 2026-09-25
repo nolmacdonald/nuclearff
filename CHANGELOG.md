@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-24
+
 ### Added
 
 - Initial project structure with `src/` layout, scaffolded from the
@@ -808,6 +810,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Released under the MIT License (previously all rights reserved).
+- Minimum supported Python is now 3.12 (was 3.11); CI tests 3.12 and 3.13.
 - Docstrings are Google style, matching the project convention; the template
   shipped Sphinx configured for NumPy style.
 - `requests` replaces `httpx` as the HTTP client, matching the plan and the
@@ -855,4 +859,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   function (both used elsewhere, including a logger name in
   `tests/test_valuation_vorp.py`).
 
-[Unreleased]: https://github.com/nolmacdonald/nuclearff/commits/main
+[Unreleased]: https://github.com/nolmacdonald/nuclearff/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/nolmacdonald/nuclearff/releases/tag/v0.1.0
