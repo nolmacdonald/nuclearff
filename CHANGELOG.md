@@ -768,6 +768,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ScoringEngine._terms`, extracted from the existing `score_frame` with no
   change to its own behavior). Built for, and used by,
   `metrics.passing.fantasy_point_breakdown`.
+- `nuclearff.reference.coaching_staff` (GitHub Issue 215, part of epic #213):
+  `load_coaching_staff`/`join_coaching_staff` — a small, hand-curated,
+  cited CSV of coordinators/play-callers (nflverse tracks none), since
+  "what changed in the offense" needs to know who was calling plays.
+  Ships as real package data under `src/nuclearff/reference/` rather than
+  the issue's own suggested `data/reference/` path: this repo's
+  `.gitignore` matches a bare `data/` anywhere in the tree except the
+  `src/nuclearff/data/` package itself, so a repo-root `data/reference/`
+  file would have been silently untracked — confirmed via a real `uv build`
+  that the CSV lands in the wheel from its new home, which the issue's own
+  path would not have. Ships Tampa Bay's real OC history for 2022-2026,
+  verified live via web search this session (not transcribed from the
+  epic's own prose, which under-specifies the 2025 hire as just
+  "Grizzard" — independently confirmed and completed as Josh Grizzard,
+  promoted from pass-game coordinator in February 2025 and fired after the
+  season, not mid-season, in January 2026). Validation rejects a
+  placeholder/missing `source_url`, a null required field, and overlapping
+  week ranges for the same (season, team, role) — fails loudly on a
+  malformed row per the issue's own requirement, rather than silently
+  accepting one.
 
 ### Changed
 
