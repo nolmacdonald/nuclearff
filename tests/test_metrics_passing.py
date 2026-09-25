@@ -19,7 +19,9 @@ from nuclearff.metrics.passing import (
     _TURNOVER_SCORING_KEYS,
     defense_epa_per_dropback,
     fantasy_point_breakdown,
+    ftn_charting_rates,
     neutral_pass_rate,
+    pace,
     volume_efficiency_split,
 )
 from nuclearff.scoring.engine import _HANDLED_KEYS
@@ -268,3 +270,156 @@ def test_defense_epa_per_dropback_worst_defense_sorts_first_within_season():
     result = defense_epa_per_dropback(_pbp_for_defense_epa())
 
     assert result["defteam"].to_list()[0] == "ATL"
+
+
+# --- pace --------------------------------------------------------------------------
+
+
+def _pbp_for_pace() -> pl.DataFrame:
+    """One team, one game, three drives:
+
+    - Drive 1 (neutral): three plays. The first gap (3600 -> 3562, 38s) is a
+      plausible snap-to-snap interval; the second (3562 -> 3520, 42s)
+      exceeds the plausible-gap threshold (a clock stoppage, not tempo) and
+      must be excluded.
+    - Drive 2 (neutral): two plays, one plausible 30s gap.
+    - Drive 3: a blowout (score_differential=20) run followed by a punt --
+      excluded twice over (not neutral, and a punt isn't an offensive
+      run/pass play), so it must contribute nothing regardless of its own
+      internal gap.
+    """
+    return pl.DataFrame(
+        {
+            "season": [2026] * 7,
+            "posteam": ["TB"] * 7,
+            "game_id": ["g1"] * 7,
+            "drive": [1, 1, 1, 2, 2, 3, 3],
+            "play_id": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+            "game_seconds_remaining": [
+                3600.0,
+                3562.0,
+                3520.0,
+                3000.0,
+                2970.0,
+                1800.0,
+                1750.0,
+            ],
+            "qtr": [1, 1, 1, 2, 2, 1, 1],
+            "score_differential": [0, 0, 0, 3, 3, 20, 20],
+            "play_type": ["run", "pass", "run", "pass", "pass", "run", "punt"],
+        }
+    )
+
+
+def test_pace_counts_only_plausible_same_drive_gaps():
+    result = pace(_pbp_for_pace())
+
+    assert result["snap_intervals"].item() == 2
+
+
+def test_pace_excludes_a_gap_longer_than_the_plausible_snap_clock():
+    """The 42s gap (a real clock stoppage) must not pull the average down
+    toward a faster-looking pace than the offense actually played at."""
+    result = pace(_pbp_for_pace())
+
+    assert result["pace_seconds_per_play"].item() == pytest.approx((38.0 + 30.0) / 2)
+
+
+def test_pace_excludes_blowout_and_non_offensive_plays():
+    """Drive 3 (blowout + a punt) must contribute nothing -- removing it
+    entirely from the input must not change the result."""
+    without_drive_3 = _pbp_for_pace().filter(pl.col("drive") != 3)
+
+    assert pace(_pbp_for_pace()).to_dicts() == pace(without_drive_3).to_dicts()
+
+
+def test_pace_raises_on_missing_column():
+    broken = _pbp_for_pace().drop("drive")
+
+    with pytest.raises(ValueError, match="drive"):
+        pace(broken)
+
+
+# --- ftn_charting_rates -----------------------------------------------------------
+
+
+def _pbp_for_ftn() -> pl.DataFrame:
+    """Three plays for one passer: two real dropbacks with a charted match
+    (play_id as Float64, matching real load_pbp) and one dropback FTN never
+    charted (no matching nflverse_play_id below) -- an inner join, so it
+    must simply not count rather than appearing as an all-null row. A
+    fourth, non-dropback play must never reach the join at all.
+    """
+    return pl.DataFrame(
+        {
+            "season": [2026, 2026, 2026, 2026],
+            "game_id": ["g1", "g1", "g1", "g1"],
+            "play_id": [10.0, 20.0, 30.0, 40.0],
+            "qb_dropback": [1, 1, 1, 0],
+            "passer_player_id": ["00-01", "00-01", "00-01", "00-01"],
+            "passer_player_name": ["B.Mayfield"] * 4,
+        }
+    )
+
+
+def _ftn_charting() -> pl.DataFrame:
+    """Charts plays 10 and 20 (as Int32 -- real load_ftn_charting dtype) but
+    not 30, and not for the wrong game."""
+    return pl.DataFrame(
+        {
+            "nflverse_game_id": ["g1", "g1"],
+            "nflverse_play_id": pl.Series([10, 20], dtype=pl.Int32),
+            "is_play_action": [True, False],
+            "is_rpo": [False, False],
+            "is_screen_pass": [False, False],
+            "is_motion": [True, True],
+            "n_blitzers": [1, 0],
+            "n_pass_rushers": [4, 5],
+            "is_qb_out_of_pocket": [False, True],
+            "is_drop": [False, False],
+            "is_catchable_ball": [True, True],
+            "is_interception_worthy": [False, False],
+        }
+    )
+
+
+def test_ftn_charting_rates_joins_despite_the_dtype_mismatch():
+    """pbp.play_id is Float64, ftn.nflverse_play_id is Int32 -- the real,
+    confirmed-live mismatch this function must cast around."""
+    result = ftn_charting_rates(_pbp_for_ftn(), _ftn_charting())
+
+    assert result["charted_dropbacks"].item() == 2
+
+
+def test_ftn_charting_rates_uncharted_dropback_is_excluded_not_null():
+    """Play 30 is a real dropback with no FTN match -- the inner join must
+    drop it, not produce a null-padded row."""
+    result = ftn_charting_rates(_pbp_for_ftn(), _ftn_charting())
+
+    assert result.height == 1
+    assert result["charted_dropbacks"].item() == 2  # not 3
+
+
+def test_ftn_charting_rates_averages_each_rate_correctly():
+    result = ftn_charting_rates(_pbp_for_ftn(), _ftn_charting())
+    row = result.row(0, named=True)
+
+    assert row["play_action_rate"] == pytest.approx(0.5)
+    assert row["motion_rate"] == pytest.approx(1.0)
+    assert row["avg_blitzers"] == pytest.approx(0.5)
+    assert row["avg_pass_rushers"] == pytest.approx(4.5)
+    assert row["out_of_pocket_rate"] == pytest.approx(0.5)
+
+
+def test_ftn_charting_rates_raises_on_missing_pbp_column():
+    broken = _pbp_for_ftn().drop("qb_dropback")
+
+    with pytest.raises(ValueError, match="qb_dropback"):
+        ftn_charting_rates(broken, _ftn_charting())
+
+
+def test_ftn_charting_rates_raises_on_missing_ftn_column():
+    broken = _ftn_charting().drop("is_rpo")
+
+    with pytest.raises(ValueError, match="is_rpo"):
+        ftn_charting_rates(_pbp_for_ftn(), broken)

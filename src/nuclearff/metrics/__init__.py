@@ -9,7 +9,9 @@ from nuclearff.metrics.efficiency import (
 from nuclearff.metrics.passing import (
     defense_epa_per_dropback,
     fantasy_point_breakdown,
+    ftn_charting_rates,
     neutral_pass_rate,
+    pace,
     volume_efficiency_split,
 )
 from nuclearff.metrics.touchdowns import expected_tds
@@ -28,8 +30,10 @@ __all__ = [
     "defense_epa_per_dropback",
     "expected_tds",
     "fantasy_point_breakdown",
+    "ftn_charting_rates",
     "join_routes",
     "neutral_pass_rate",
+    "pace",
     "racr",
     "target_share",
     "tprr",

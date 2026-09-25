@@ -1,5 +1,6 @@
 """QB/offense metrics: fantasy-point breakdown, volume vs. efficiency, neutral-
-situation pass rate, and defense EPA allowed per dropback.
+situation pass rate and pace, charted play-design rates, and defense EPA
+allowed per dropback.
 
 Built for GitHub Issue 214 (epic #213): the reusable feature layer behind
 "what changed in a QB's box score, and how much of it is real." Every
@@ -22,25 +23,36 @@ Data sources, verified live this session (nflreadpy 0.1.5, 2025 season)
   ``receiving_fumbles_lost``, and the composites/thresholds
   :class:`~nuclearff.scoring.engine.ScoringEngine` already maps for every
   other position.
-- EPA/CPOE/success/dropbacks/neutral-situation inputs: ``nflreadpy.load_pbp``
-  — confirmed ``qb_dropback``, ``epa``, ``cpoe``, ``success``, ``pass_oe``,
-  ``qtr``, ``score_differential``, ``play_type``, ``posteam``, ``defteam``,
-  ``passer_player_id``/``passer_player_name``.
+- EPA/CPOE/success/dropbacks/neutral-situation/pace inputs:
+  ``nflreadpy.load_pbp`` — confirmed ``qb_dropback``, ``epa``, ``cpoe``,
+  ``success``, ``pass_oe``, ``qtr``, ``score_differential``, ``play_type``,
+  ``posteam``, ``defteam``, ``passer_player_id``/``passer_player_name``,
+  ``drive`` and ``game_seconds_remaining`` (for :func:`pace` — confirmed
+  ``play_id`` is monotonically increasing within a game, so sorting by it
+  gives real play order).
+- Play-action/RPO/screen/motion/blitz/out-of-pocket/drop/catchable-ball/
+  interception-worthy rates: ``nflreadpy.load_ftn_charting`` joined onto
+  ``load_pbp`` — confirmed all ten fields exist under the exact names the
+  epic named (``is_play_action``, ``is_rpo``, ``is_screen_pass``,
+  ``is_motion``, ``n_blitzers``, ``n_pass_rushers``, ``is_qb_out_of_pocket``,
+  ``is_drop``, ``is_catchable_ball``, ``is_interception_worthy``). **The join
+  key types do not match without a cast**: ``pbp.play_id`` is ``Float64``,
+  ``ftn.nflverse_play_id`` is ``Int32``. Confirmed live for the full 2025
+  season: with the cast, every one of 20,886 real dropbacks league-wide
+  found exactly one charted match (100% coverage, not a lossy join), and the
+  resulting rates for Baker Mayfield (16.8% play-action, 3.4% charted drop
+  rate, 4.28 average pass rushers faced, ...) all land in the realistic
+  real-NFL range.
 
 Not in scope here (see epic #213's other sub-issues)
 -------------------------------------------------------
-Play-action/RPO/motion/pressure/out-of-pocket/charted-drop rates
-(``nflreadpy.load_ftn_charting`` joined onto ``load_pbp``) and pace are the
-rest of #214's own scope, not yet built here — see that issue for the
-verified join (the join keys need a dtype cast: ``pbp.play_id`` is
-``Float64``, ``ftn.nflverse_play_id`` is ``Int32``). Personnel/formation
-(``load_participation``) is not available for the current season at all —
-confirmed live, ``load_participation(seasons=[2026])`` raises ``ValueError:
-Season must be between 2016 and 2025``. Next Gen Stats (time to throw,
-aggressiveness, air yards) are pre-aggregated by NGS itself and need no
-derivation logic; they belong to #217's report as a direct load. PFF's data
-and its ID crosswalk are #216's job. Coaching staff/play-caller lookup is
-#215's job.
+Personnel/formation (``load_participation``) is not available for the
+current season at all — confirmed live, ``load_participation(seasons=[2026])``
+raises ``ValueError: Season must be between 2016 and 2025``. Next Gen Stats
+(time to throw, aggressiveness, air yards) are pre-aggregated by NGS itself
+and need no derivation logic; they belong to #217's report as a direct load.
+PFF's data and its ID crosswalk are #216's job. Coaching staff/play-caller
+lookup is #215's job (:mod:`nuclearff.reference.coaching_staff`).
 """
 
 from __future__ import annotations
@@ -108,6 +120,29 @@ possession, accounting for a 2-point conversion. A modeling choice, not an
 nflverse-defined constant; the standard threshold used by public neutral
 pass-rate/PROE work (e.g. rbsdm.com)."""
 
+_MAX_PLAUSIBLE_SNAP_INTERVAL_SECONDS = 40.0
+"""Longest gap between two of a team's consecutive same-drive plays counted
+as real offensive tempo, for :func:`pace`. 40 seconds is the NFL's own base
+play clock; a longer gap reflects a stoppage (injury, replay review, a
+penalty discussion) rather than the offense's own chosen pace. A modeling
+choice, not an nflverse-defined constant."""
+
+_FTN_RATE_COLUMNS = (
+    "is_play_action",
+    "is_rpo",
+    "is_screen_pass",
+    "is_motion",
+    "n_blitzers",
+    "n_pass_rushers",
+    "is_qb_out_of_pocket",
+    "is_drop",
+    "is_catchable_ball",
+    "is_interception_worthy",
+)
+"""FTN charting fields exposed by :func:`ftn_charting_rates`, in the exact
+names confirmed live against ``load_ftn_charting`` (see the module
+docstring)."""
+
 _VOLUME_EFFICIENCY_REQUIRED_COLUMNS = (
     "season",
     "passer_player_id",
@@ -128,6 +163,33 @@ _NEUTRAL_PASS_RATE_REQUIRED_COLUMNS = (
 )
 
 _DEFENSE_EPA_REQUIRED_COLUMNS = ("season", "defteam", "qb_dropback", "epa")
+
+_PACE_REQUIRED_COLUMNS = (
+    "season",
+    "posteam",
+    "qtr",
+    "score_differential",
+    "play_type",
+    "game_id",
+    "drive",
+    "play_id",
+    "game_seconds_remaining",
+)
+
+_FTN_PBP_REQUIRED_COLUMNS = (
+    "season",
+    "game_id",
+    "play_id",
+    "qb_dropback",
+    "passer_player_id",
+    "passer_player_name",
+)
+
+_FTN_CHARTING_REQUIRED_COLUMNS = (
+    "nflverse_game_id",
+    "nflverse_play_id",
+    *_FTN_RATE_COLUMNS,
+)
 
 
 def _require_columns(df: pl.DataFrame, required: Sequence[str], fn_name: str) -> None:
@@ -230,16 +292,35 @@ def volume_efficiency_split(pbp: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _neutral_situation_plays(pbp: pl.DataFrame) -> pl.DataFrame:
+    """Real offensive plays (run or pass) in a neutral game situation.
+
+    Shared by :func:`neutral_pass_rate` and :func:`pace` — both are
+    "neutral-situation" metrics in the epic's own framing, and must agree on
+    exactly which plays that means. See :data:`_NEUTRAL_QUARTERS` and
+    :data:`_NEUTRAL_MAX_SCORE_DIFFERENTIAL` for the exact thresholds and why
+    they're a modeling choice, not an nflverse-defined term.
+
+    Args:
+        pbp: Play-by-play rows.
+
+    Returns:
+        ``pbp`` filtered to real run/pass plays in a neutral situation.
+    """
+    return pbp.filter(
+        pl.col("qtr").is_in(_NEUTRAL_QUARTERS)
+        & (pl.col("score_differential").abs() <= _NEUTRAL_MAX_SCORE_DIFFERENTIAL)
+        & pl.col("play_type").is_in(["pass", "run"])
+    )
+
+
 def neutral_pass_rate(pbp: pl.DataFrame) -> pl.DataFrame:
     """A team's pass rate in neutral game situations, by season.
 
-    "Neutral situation" is a modeling choice, not an nflverse-defined term —
-    see :data:`_NEUTRAL_QUARTERS` and :data:`_NEUTRAL_MAX_SCORE_DIFFERENTIAL`
-    for the exact thresholds and why. This is deliberately a **team**-level
-    metric (grouped by ``posteam``, not passer): neutral pass rate reflects
-    play-calling/scheme, the epic's own motivating question #3 ("what
-    changed in the offense"), not which QB happened to be on the field for a
-    given snap.
+    This is deliberately a **team**-level metric (grouped by ``posteam``,
+    not passer): neutral pass rate reflects play-calling/scheme, the epic's
+    own motivating question #3 ("what changed in the offense"), not which QB
+    happened to be on the field for a given snap.
 
     Args:
         pbp: Play-by-play rows covering whichever season/week-range the
@@ -255,11 +336,7 @@ def neutral_pass_rate(pbp: pl.DataFrame) -> pl.DataFrame:
     """
     _require_columns(pbp, _NEUTRAL_PASS_RATE_REQUIRED_COLUMNS, "neutral_pass_rate")
 
-    neutral = pbp.filter(
-        pl.col("qtr").is_in(_NEUTRAL_QUARTERS)
-        & (pl.col("score_differential").abs() <= _NEUTRAL_MAX_SCORE_DIFFERENTIAL)
-        & pl.col("play_type").is_in(["pass", "run"])
-    )
+    neutral = _neutral_situation_plays(pbp)
     return (
         neutral.group_by(["season", "posteam"])
         .agg(
@@ -267,6 +344,131 @@ def neutral_pass_rate(pbp: pl.DataFrame) -> pl.DataFrame:
             (pl.col("play_type") == "pass").mean().alias("neutral_pass_rate"),
         )
         .sort(["season", "posteam"])
+    )
+
+
+def pace(pbp: pl.DataFrame) -> pl.DataFrame:
+    """A team's seconds per offensive play, in neutral game situations, by season.
+
+    Computed as the real game-clock time between two of a team's
+    consecutive plays *within the same drive* (``game_seconds_remaining``
+    diffed after sorting by ``play_id``, confirmed live to be monotonically
+    increasing within a game — see the module docstring), restricted to
+    neutral situations (:func:`_neutral_situation_plays` — the same
+    definition :func:`neutral_pass_rate` uses) and to plausible snap-to-snap
+    gaps (see :data:`_MAX_PLAUSIBLE_SNAP_INTERVAL_SECONDS`): a longer gap is
+    a clock stoppage, not the offense choosing to go slow. Lower is faster
+    (hurry-up); higher is slower (deliberate, clock-milking).
+
+    Args:
+        pbp: Play-by-play rows covering whichever season/week-range the
+            caller wants one row per team for.
+
+    Returns:
+        One row per ``(season, posteam)``: ``snap_intervals`` (the sample
+        size — real, plausible consecutive-play gaps observed) and
+        ``pace_seconds_per_play``. A team season with zero plausible
+        consecutive-play gaps at all (e.g. every neutral-situation drive was
+        a single play) contributes no row, rather than an undefined average.
+
+    Raises:
+        ValueError: If ``pbp`` is missing a required column.
+    """
+    _require_columns(pbp, _PACE_REQUIRED_COLUMNS, "pace")
+
+    neutral = _neutral_situation_plays(pbp)
+    gaps = (
+        neutral.sort(["season", "posteam", "game_id", "drive", "play_id"])
+        .with_columns(
+            (
+                pl.col("game_seconds_remaining").shift(1)
+                - pl.col("game_seconds_remaining")
+            )
+            .over(["game_id", "posteam", "drive"])
+            .alias("_seconds_since_previous_play")
+        )
+        .filter(
+            pl.col("_seconds_since_previous_play").is_not_null()
+            & (pl.col("_seconds_since_previous_play") > 0)
+            & (
+                pl.col("_seconds_since_previous_play")
+                <= _MAX_PLAUSIBLE_SNAP_INTERVAL_SECONDS
+            )
+        )
+    )
+    return (
+        gaps.group_by(["season", "posteam"])
+        .agg(
+            pl.len().alias("snap_intervals"),
+            pl.col("_seconds_since_previous_play")
+            .mean()
+            .alias("pace_seconds_per_play"),
+        )
+        .sort(["season", "posteam"])
+    )
+
+
+def ftn_charting_rates(pbp: pl.DataFrame, ftn_charting: pl.DataFrame) -> pl.DataFrame:
+    """Per-passer charted play-design rates: play-action, RPO, screen, motion,
+    pass-rush pressure, out-of-pocket, drops, catchable balls, and
+    interception-worthy throws.
+
+    Joins ``pbp`` (restricted to real dropbacks, the same grain
+    :func:`volume_efficiency_split` uses) onto FTN's own charting via
+    ``(game_id, play_id)`` — confirmed live this session to need a dtype
+    cast (``pbp.play_id`` is ``Float64``, ``ftn_charting.nflverse_play_id``
+    is ``Int32``) and, with that cast, to match every real dropback league-
+    wide (see the module docstring). An inner join: a dropback FTN hasn't
+    charted (real for a season/week FTN charting doesn't cover) simply isn't
+    counted here rather than appearing as an all-null row.
+
+    Args:
+        pbp: Play-by-play rows covering whichever season/week-range the
+            caller wants one row per passer for.
+        ftn_charting: ``nflreadpy.load_ftn_charting`` output (or a subset of
+            its rows) — needs ``nflverse_game_id``, ``nflverse_play_id``, and
+            every column in :data:`_FTN_RATE_COLUMNS`.
+
+    Returns:
+        One row per ``(season, passer_player_id, passer_player_name)``:
+        ``charted_dropbacks`` (the sample size), ``play_action_rate``,
+        ``rpo_rate``, ``screen_rate``, ``motion_rate``, ``avg_blitzers``,
+        ``avg_pass_rushers``, ``out_of_pocket_rate``, ``drop_rate``,
+        ``catchable_ball_rate``, ``interception_worthy_rate``. Sorted by
+        season, most charted dropbacks first.
+
+    Raises:
+        ValueError: If either input is missing a required column.
+    """
+    _require_columns(pbp, _FTN_PBP_REQUIRED_COLUMNS, "ftn_charting_rates")
+    _require_columns(ftn_charting, _FTN_CHARTING_REQUIRED_COLUMNS, "ftn_charting_rates")
+
+    dropbacks = pbp.filter(pl.col("qb_dropback") == 1).with_columns(
+        pl.col("play_id").cast(pl.Int32)
+    )
+    joined = dropbacks.join(
+        ftn_charting,
+        left_on=["game_id", "play_id"],
+        right_on=["nflverse_game_id", "nflverse_play_id"],
+        how="inner",
+    )
+
+    return (
+        joined.group_by(["season", "passer_player_id", "passer_player_name"])
+        .agg(
+            pl.len().alias("charted_dropbacks"),
+            pl.col("is_play_action").mean().alias("play_action_rate"),
+            pl.col("is_rpo").mean().alias("rpo_rate"),
+            pl.col("is_screen_pass").mean().alias("screen_rate"),
+            pl.col("is_motion").mean().alias("motion_rate"),
+            pl.col("n_blitzers").mean().alias("avg_blitzers"),
+            pl.col("n_pass_rushers").mean().alias("avg_pass_rushers"),
+            pl.col("is_qb_out_of_pocket").mean().alias("out_of_pocket_rate"),
+            pl.col("is_drop").mean().alias("drop_rate"),
+            pl.col("is_catchable_ball").mean().alias("catchable_ball_rate"),
+            pl.col("is_interception_worthy").mean().alias("interception_worthy_rate"),
+        )
+        .sort(["season", "charted_dropbacks"], descending=[False, True])
     )
 
 
