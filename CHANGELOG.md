@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CV. Z and CV skip weeks with fewer than 5 rosters alive
   (`guard_excluded_weeks` lists them). `report.render_luck_table` and
   `render_luck_scatter` draw them.
+- `chopped.finishes.weekly_finishes` (#229): weeks each manager finished in
+  the top 3 or bottom 3 of rosters still alive, and close calls (bottom 3
+  but survived). Only weeks with 7+ rosters alive count, so the groups can't
+  overlap; ties count every tied roster. `report.render_weekly_finishes`
+  draws them as diverging bars.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

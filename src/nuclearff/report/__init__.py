@@ -2,7 +2,11 @@
 
 from nuclearff.report.bracket import render_bracket_tree, render_playoff_brackets
 from nuclearff.report.build import write_report
-from nuclearff.report.chopped import render_luck_scatter, render_luck_table
+from nuclearff.report.chopped import (
+    render_luck_scatter,
+    render_luck_table,
+    render_weekly_finishes,
+)
 from nuclearff.report.draft import render_draft_order_table
 from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.on_this_day import render_on_this_day_table
@@ -51,6 +55,7 @@ __all__ = [
     "render_trades_heatmap",
     "render_trades_over_time",
     "render_user_leagues_table",
+    "render_weekly_finishes",
     "render_weekly_performance_table",
     "summarize_league_types",
     "top_n_by_position",

@@ -274,3 +274,74 @@ def render_luck_scatter(
         )
     _title(ax, title, subtitle or "Top left: small cushions and many close calls")
     return _save(fig, out_path, "managers", points.height)
+
+
+# -------------------------------------------------------------------------------------
+# TOP-3 / BOTTOM-3 FINISHES (#229)
+# -------------------------------------------------------------------------------------
+
+
+def render_weekly_finishes(
+    finishes: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Top-3 and Bottom-3 Weeks",
+    subtitle: str | None = None,
+) -> Path:
+    """Diverging bars: top-3 weeks to the right, bottom-3 weeks to the left.
+
+    Close calls (bottom-3 weeks survived) are the lighter part of each
+    bottom bar; the rest is the week the manager was chopped. Rows are
+    sorted by top-3 minus bottom-3 weeks, best at the top.
+
+    Args:
+        finishes: :func:`nuclearff.chopped.finishes.weekly_finishes` output.
+        out_path: Destination PNG path.
+        title: Chart title.
+        subtitle: Caption.
+
+    Returns:
+        The path written.
+    """
+    plt = _pyplot()
+    ordered = finishes.reverse()  # barh draws bottom-up; best row on top
+    managers = ordered["manager"].to_list()
+    top = ordered["top3_weeks"].to_list()
+    close = ordered["close_calls"].to_list()
+    chopped = [b - c for b, c in zip(ordered["bottom3_weeks"], close, strict=True)]
+    positions = range(len(managers))
+
+    fig, ax = plt.subplots(
+        figsize=(9, 0.38 * len(managers) + 1.8), layout="constrained"
+    )
+    ax.barh(positions, top, color="#1b7837", label="Top 3 (good luck)")
+    ax.barh(
+        positions,
+        [-c for c in close],
+        color="#e08a8a",
+        label="Bottom 3, survived (close call)",
+    )
+    ax.barh(
+        positions,
+        [-c for c in chopped],
+        left=[-c for c in close],
+        color="#c44e52",
+        label="Bottom 3, chopped",
+    )
+    ax.axvline(0, color="#444444", linewidth=0.8)
+    ax.set_yticks(list(positions), managers)
+    limit = max([*top, *(b for b in ordered["bottom3_weeks"])], default=1) + 1
+    ax.set_xlim(-limit, limit)
+    ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{abs(v):g}"))
+    ax.set_xlabel("Weeks")
+    ax.grid(True, axis="x", alpha=0.3)
+    ax.set_axisbelow(True)
+    ax.legend(loc="lower right", fontsize=8, frameon=False)
+    _title(
+        ax,
+        title,
+        subtitle
+        or "Weeks with 7+ teams alive · top-3 finishes also reflect skill, "
+        "not only luck",
+    )
+    return _save(fig, out_path, "managers", len(managers))
