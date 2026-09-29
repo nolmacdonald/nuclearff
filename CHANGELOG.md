@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nuclearff.chopped`, Chopped league analytics (epic #223).
+  `chopped.survival.weekly_survival` (#226) builds one row per alive roster
+  per processed week: the chop line (lowest alive score), `margin` and
+  `margin_pct` above it, `rank`/`percentile`, and `z_chop` (margin over the
+  week's population standard deviation). It drops chopped rosters' 0.0-point
+  rows and weeks after `last_chopped_leg`, and raises `ChoppedLeagueError`
+  if a week's chopped roster wasn't its lowest scorer
+  (`chop_line_problems`).
+- `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
+  Chopped leagues: each roster's `eliminated_leg` and Sleeper's
+  `waiver_budget_used`, from the rosters it already fetches.
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
