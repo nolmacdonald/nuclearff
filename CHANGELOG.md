@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   starting total. `report.render_spend_leaderboard` and
   `render_league_burndown` draw them. `chopped_leagues` now also returns the
   league's `status`.
+- `chopped.claims.waiver_claims` (#225): one row per claimed player per
+  waiver claim, with its bid (losing claims keep their real amount) and an
+  `outcome` from Sleeper's note: `won`, `outbid`, `roster_full`,
+  `over_budget` or `other` (logged). `claim_activity` rolls it up per
+  manager: claims placed, players bid on, wins, failures by reason,
+  free-agent adds, weeks alive and claims per week alive.
+  `report.render_claim_activity` draws the table.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

@@ -625,3 +625,65 @@ def render_league_burndown(
         f"${last['lost_to_chop']:,} lost to the chop",
     )
     return _save(fig, out_path, "weeks", len(weeks))
+
+
+# -------------------------------------------------------------------------------------
+# WAIVER CLAIM ACTIVITY (#225)
+# -------------------------------------------------------------------------------------
+
+
+def render_claim_activity(
+    activity: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Waiver Claim Activity",
+    subtitle: str | None = None,
+) -> Path:
+    """Table of claims placed per manager, most to fewest, with failures by reason.
+
+    Args:
+        activity: One season (or career) of
+            :func:`nuclearff.chopped.claims.claim_activity` output.
+        out_path: Destination PNG path.
+        title: Table title.
+        subtitle: Caption.
+
+    Returns:
+        The path written.
+    """
+    rows = [
+        {
+            "manager": row["manager"],
+            "claims": str(row["claims_placed"]),
+            "players": str(row["players_bid_on"]),
+            "won": str(row["claims_won"]),
+            "outbid": str(row["outbid"]),
+            "roster_full": str(row["roster_full"]),
+            "over_budget": str(row["over_budget"] + row["other_failed"]),
+            "fa": str(row["free_agent_adds"]),
+            "weeks": str(row["weeks_alive"]),
+            "per_week": _fmt(row["claims_per_week_alive"], ".1f"),
+        }
+        for row in activity.iter_rows(named=True)
+    ]
+    columns = [
+        ("manager", "MANAGER", 2.4, {"ha": "left", "weight": "bold"}),
+        ("claims", "CLAIMS", 1.2, {"weight": "bold"}),
+        ("players", "PLAYERS BID ON", 2.0, {}),
+        ("won", "WON", 1.0, {}),
+        ("outbid", "OUTBID", 1.2, {}),
+        ("roster_full", "ROSTER FULL", 1.7, {}),
+        ("over_budget", "OVER BUDGET/OTHER", 2.5, {}),
+        ("fa", "FREE-AGENT ADDS", 2.2, {}),
+        ("weeks", "WEEKS ALIVE", 1.7, {}),
+        ("per_week", "CLAIMS/WEEK", 1.8, {}),
+    ]
+    return _render_table(
+        rows,
+        columns,
+        out_path,
+        title=title,
+        subtitle=subtitle
+        or "Roster-full and over-budget claims never entered a bidding contest",
+        what="managers",
+    )
