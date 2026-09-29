@@ -29,6 +29,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   but survived). Only weeks with 7+ rosters alive count, so the groups can't
   overlap; ties count every tied roster. `report.render_weekly_finishes`
   draws them as diverging bars.
+- `chopped.faab.faab_by_week` (#221): each Chopped roster's FAAB after
+  every week, from the league's own `waiver_budget`, winning bids (a
+  multi-add claim's bid counted once) and FAAB traded between teams,
+  stopping at the roster's elimination week. `faab_check` reports any roster
+  whose rebuilt total disagrees with Sleeper's `waiver_budget_used`.
+  `report.render_faab_remaining` draws a step chart per team.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

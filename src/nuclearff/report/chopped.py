@@ -345,3 +345,131 @@ def render_weekly_finishes(
         "not only luck",
     )
     return _save(fig, out_path, "managers", len(managers))
+
+
+# -------------------------------------------------------------------------------------
+# FAAB REMAINING (#221)
+# -------------------------------------------------------------------------------------
+
+
+def render_faab_remaining(
+    faab: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "FAAB Remaining After Each Week",
+    subtitle: str | None = None,
+) -> Path:
+    """Step chart of each team's FAAB after every week, for one season.
+
+    Each chopped team's line ends at its chop week with an ×, labeled with
+    the FAAB it had left. Surviving teams are labeled at the right edge with
+    their current FAAB, spread out so labels never overlap, so "who can
+    outbid whom this week" reads at a glance.
+
+    Args:
+        faab: One season of :func:`nuclearff.chopped.faab.faab_by_week`
+            output.
+        out_path: Destination PNG path.
+        title: Chart title.
+        subtitle: Caption.
+
+    Returns:
+        The path written.
+    """
+    plt = _pyplot()
+    from matplotlib.transforms import blended_transform_factory
+
+    rosters = (
+        faab.group_by("roster_id")
+        .agg(pl.col("manager").first(), pl.col("remaining").last())
+        .sort("remaining", descending=True)
+    )
+    cmap = plt.get_cmap("tab20")
+    fig, ax = plt.subplots(figsize=(11, 7), layout="constrained")
+    survivors = []
+    chop_labels = []
+    for i, roster in enumerate(rosters.iter_rows(named=True)):
+        series = faab.filter(pl.col("roster_id") == roster["roster_id"]).sort("week")
+        weeks = [0, *series["week"].to_list()]
+        budget = series["remaining"][0] + (
+            series["spent_this_week"][0]
+            + series["sent_via_trade"][0]
+            - series["received_via_trade"][0]
+        )
+        values = [budget, *series["remaining"].to_list()]
+        color = cmap(i % 20)
+        ax.step(weeks, values, where="post", color=color, linewidth=1.6)
+        name = roster["manager"] or f"Roster {roster['roster_id']}"
+        if series["chopped"][-1]:
+            ax.plot(weeks[-1], values[-1], marker="x", color=color, markersize=8, mew=2)
+            chop_labels.append(
+                ax.annotate(
+                    f"{name} (${values[-1]:,})",
+                    xy=(weeks[-1], values[-1]),
+                    xytext=(4, 4),
+                    textcoords="offset points",
+                    fontsize=7,
+                    color=color,
+                    bbox={"boxstyle": "square,pad=0.1", "fc": "white", "ec": "none"},
+                )
+            )
+        else:
+            survivors.append((name, weeks[-1], values[-1], color))
+
+    last_week = max(faab["week"].to_list(), default=1)
+    ax.set_xlim(0, last_week + max(2, last_week * 0.25))
+    ax.set_ylim(bottom=0)
+    ax.set_xticks(range(0, last_week + 1))
+    ax.set_xlabel("Week (0 = start of season)")
+    ax.set_ylabel("FAAB remaining ($)")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    ax.grid(True, alpha=0.3)
+
+    # Survivors labeled right of their last point, pushed apart in y (axes
+    # fraction) with a leader line, the render_cumulative_trades pattern.
+    y0, y1 = ax.get_ylim()
+    min_gap = min(0.045, 0.9 / max(len(survivors) - 1, 1))
+    placed = -1.0
+    to_label = blended_transform_factory(ax.transData, ax.transAxes)
+    ordered = sorted(survivors, key=lambda s: s[2])
+    fracs = []
+    for _, _, remaining, _ in ordered:
+        placed = max((remaining - y0) / (y1 - y0), placed + min_gap)
+        fracs.append(placed)
+    # Many teams near the full budget push labels above the frame; squeeze
+    # the whole set back under the top, keeping order and spacing.
+    if fracs and fracs[-1] > 0.98:
+        low = fracs[0]
+        fracs = [low + (f - low) * (0.98 - low) / (fracs[-1] - low or 1) for f in fracs]
+    for (name, x_end, remaining, color), frac in zip(ordered, fracs, strict=True):
+        ax.annotate(
+            f"{name} ${remaining:,}",
+            xy=(x_end, remaining),
+            xytext=(x_end + 0.6, frac),
+            textcoords=to_label,
+            va="center",
+            fontsize=7.5,
+            color="#222222",
+            arrowprops={"arrowstyle": "-", "color": color, "lw": 0.8},
+        )
+    _title(
+        ax, title, subtitle or "× marks the week a team was chopped, with its FAAB left"
+    )
+
+    # Teams chopped at similar weeks and balances (often $0 late in a season)
+    # would print on top of each other; lift each chopped label until it
+    # clears the ones already placed.
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    placed_boxes: list[Any] = []
+    for label in sorted(chop_labels, key=lambda a: (a.xy[0], a.xy[1])):
+        dy = 4.0
+        box = label.get_window_extent(renderer)
+        for _ in range(40):
+            if not any(box.overlaps(other) for other in placed_boxes):
+                break
+            dy += 9.0
+            label.xyann = (4, dy)
+            box = label.get_window_extent(renderer)
+        placed_boxes.append(box)
+    return _save(fig, out_path, "rosters", rosters.height)
