@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rows and weeks after `last_chopped_leg`, and raises `ChoppedLeagueError`
   if a week's chopped roster wasn't its lowest scorer
   (`chop_line_problems`).
+- `chopped.luck.survival_luck` (#228): per manager, per season or career,
+  the Cumulative Luck Index (`cumulative_margin`, `avg_margin`,
+  `field_relative_margin`), the nail-biter ratio (weeks within 5% of the
+  chop line), razor-thin Z weeks (`0 < z_chop <= 0.3`) and percentile-rank
+  CV. Z and CV skip weeks with fewer than 5 rosters alive
+  (`guard_excluded_weeks` lists them). `report.render_luck_table` and
+  `render_luck_scatter` draw them.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.
