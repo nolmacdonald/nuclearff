@@ -42,7 +42,13 @@ def _pyplot() -> Any:
 
 
 def _title(ax: Any, title: str, subtitle: str | None, *, size: float = 14) -> None:
-    """Bold left-aligned title with an optional italic caption under it."""
+    """Bold left-aligned title with an optional italic caption under it.
+
+    ``$`` is escaped: two in one string would otherwise turn on matplotlib's
+    math text and garble a caption like "$16,000 ... $4 held".
+    """
+    title = title.replace("$", r"\$")
+    subtitle = subtitle.replace("$", r"\$") if subtitle else subtitle
     ax.set_title(
         title, loc="left", fontsize=size, weight="bold", pad=30 if subtitle else 12
     )
@@ -473,3 +479,149 @@ def render_faab_remaining(
             box = label.get_window_extent(renderer)
         placed_boxes.append(box)
     return _save(fig, out_path, "rosters", rosters.height)
+
+
+# -------------------------------------------------------------------------------------
+# FAAB SPENDING LEADERBOARD AND LEAGUE BURNDOWN (#224)
+# -------------------------------------------------------------------------------------
+
+
+def render_spend_leaderboard(
+    spend: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "FAAB Spending Leaderboard",
+    subtitle: str | None = None,
+) -> Path:
+    """Table of FAAB spent through each checkpoint week and the season.
+
+    One row per manager, sorted by season total; ★ marks the top spender in
+    each column, and "—" a checkpoint the season hasn't reached yet.
+
+    Args:
+        spend: One season of :func:`nuclearff.chopped.faab.spend_checkpoints`
+            output.
+        out_path: Destination PNG path.
+        title: Table title.
+        subtitle: Caption; by default it notes when the last checkpoint is
+            past the season's final week.
+
+    Returns:
+        The path written.
+    """
+    checkpoints = sorted(
+        spend.filter(~pl.col("is_season_total"))["through_week"].unique().to_list()
+    )
+    totals = spend.filter(pl.col("is_season_total"))
+    final_week = max(totals["through_week"].to_list(), default=None)
+    top = {
+        (row["through_week"], row["is_season_total"]): row["spent"]
+        for row in spend.group_by("through_week", "is_season_total")
+        .agg(pl.col("spent").max())
+        .iter_rows(named=True)
+    }
+
+    def cell(row: dict[str, Any] | None) -> str:
+        if row is None or not row["reached"] or row["spent"] is None:
+            return "—"
+        best = top.get((row["through_week"], row["is_season_total"]))
+        star = " ★" if row["spent"] == best and best else ""
+        return f"${row['spent']:,}{star}"
+
+    by_manager: dict[str, dict[str, Any]] = {}
+    for row in spend.iter_rows(named=True):
+        entry = by_manager.setdefault(
+            row["owner_id"], {"manager": row["manager"], "_total": -1}
+        )
+        if row["is_season_total"]:
+            entry["season"] = cell(row)
+            entry["_total"] = row["spent"] or 0
+            entry["chopped"] = _fmt(row["chopped_week"], "d", "alive")
+        else:
+            entry[f"wk{row['through_week']}"] = cell(row)
+    rows = sorted(by_manager.values(), key=lambda r: (-r["_total"], r["manager"]))
+
+    columns = [("manager", "MANAGER", 2.4, {"ha": "left", "weight": "bold"})]
+    columns += [(f"wk{w}", f"THROUGH WK {w}", 2.0, {}) for w in checkpoints]
+    columns += [
+        ("season", "SEASON", 1.8, {"weight": "bold"}),
+        ("chopped", "CHOPPED WK", 1.6, {}),
+    ]
+    if subtitle is None:
+        past = [w for w in checkpoints if final_week and w > final_week]
+        subtitle = (
+            "Winning bids only; FAAB traded between teams isn't spending. ★ = top"
+        )
+        in_progress = spend.filter(~pl.col("reached")).height > 0
+        if past and totals.height:
+            subtitle += (
+                f". Week {past[0]}+ hasn't happened yet"
+                if in_progress
+                else f". The last waivers ran in week {final_week}, so week "
+                f"{past[0]}+ equals the season total"
+            )
+    return _render_table(
+        rows, columns, out_path, title=title, subtitle=subtitle, what="managers"
+    )
+
+
+def render_league_burndown(
+    burndown: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "League FAAB Burndown",
+    subtitle: str | None = None,
+) -> Path:
+    """Stacked area of the league's FAAB after each week, for one season.
+
+    The bands always sum to the league's starting FAAB: spent on winning
+    bids, held by teams still alive (buying power left for chopped rosters'
+    players), and lost to the chop (unspent FAAB that left with a chopped
+    team).
+
+    Args:
+        burndown: One season of :func:`nuclearff.chopped.faab.league_burndown`
+            output.
+        out_path: Destination PNG path.
+        title: Chart title.
+        subtitle: Caption.
+
+    Returns:
+        The path written.
+    """
+    plt = _pyplot()
+    ordered = burndown.sort("week")
+    weeks = ordered["week"].to_list()
+    fig, ax = plt.subplots(figsize=(11, 6), layout="constrained")
+    ax.stackplot(
+        weeks,
+        ordered["held_by_alive"].to_list(),
+        ordered["spent"].to_list(),
+        ordered["lost_to_chop"].to_list(),
+        labels=[
+            "Held by teams still alive",
+            "Spent on winning bids",
+            "Lost to the chop",
+        ],
+        colors=["#1b7837", "#4c72b0", "#c44e52"],
+        step="post",
+        alpha=0.85,
+    )
+    total = max(ordered["total"].to_list(), default=0)
+    ax.set_xlim(weeks[0], weeks[-1])
+    ax.set_ylim(0, total * 1.02 if total else 1)
+    ax.set_xticks(weeks)
+    ax.set_xlabel("Week (0 = start of season)")
+    ax.set_ylabel("League FAAB ($)")
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
+    last = ordered.row(-1, named=True)
+    _title(
+        ax,
+        title,
+        subtitle
+        or f"${total:,} to start · after week {last['week']}: "
+        f"${last['held_by_alive']:,} held, ${last['spent']:,} spent, "
+        f"${last['lost_to_chop']:,} lost to the chop",
+    )
+    return _save(fig, out_path, "weeks", len(weeks))

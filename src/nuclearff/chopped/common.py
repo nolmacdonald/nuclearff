@@ -36,6 +36,7 @@ _LEAGUES_SCHEMA = {
     "total_rosters": pl.Int64,
     "waiver_budget": pl.Int64,
     "last_chopped_leg": pl.Int64,
+    "status": pl.String,
 }
 
 
@@ -60,8 +61,9 @@ def chopped_leagues(leagues: pl.DataFrame) -> pl.DataFrame:
         One row per Chopped league (:func:`~nuclearff.sleeper.standings.
         is_chopped_league`): ``league_id``, ``season``, ``total_rosters``,
         ``waiver_budget`` (the starting FAAB budget, from the league's own
-        settings, never assumed) and ``last_chopped_leg`` (the latest week
-        whose chop has been processed). Sorted by season.
+        settings, never assumed), ``last_chopped_leg`` (the latest week
+        whose chop has been processed) and ``status`` (``"complete"`` for a
+        finished season). Sorted by season.
     """
     rows = []
     for row in leagues.iter_rows(named=True):
@@ -75,6 +77,7 @@ def chopped_leagues(leagues: pl.DataFrame) -> pl.DataFrame:
                 "total_rosters": row.get("total_rosters"),
                 "waiver_budget": settings.get("waiver_budget"),
                 "last_chopped_leg": settings.get("last_chopped_leg"),
+                "status": row.get("status"),
             }
         )
     return pl.DataFrame(rows, schema=_LEAGUES_SCHEMA).sort("season")

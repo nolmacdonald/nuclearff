@@ -7,9 +7,20 @@ import json
 import polars as pl
 import pytest
 
-from nuclearff.chopped.faab import FAAB_COLUMNS, faab_by_week, faab_check
+from nuclearff.chopped.faab import (
+    FAAB_COLUMNS,
+    SPEND_COLUMNS,
+    faab_by_week,
+    faab_check,
+    league_burndown,
+    spend_checkpoints,
+)
 from nuclearff.exceptions import ChoppedLeagueError
-from nuclearff.report.chopped import render_faab_remaining
+from nuclearff.report.chopped import (
+    render_faab_remaining,
+    render_league_burndown,
+    render_spend_leaderboard,
+)
 
 LEAGUE_ID = "chop1"
 
@@ -162,3 +173,68 @@ def test_a_normal_league_raises():
 def test_render_faab_remaining_writes_a_png(tmp_path):
     out_path = render_faab_remaining(_faab(), tmp_path / "faab.png")
     assert out_path.stat().st_size > 0
+
+
+# --- spend_checkpoints / league_burndown (#224) -----------------------------------
+
+
+def _spend(status="complete", **kwargs) -> pl.DataFrame:
+    leagues = LEAGUES.with_columns(pl.lit(status).alias("status"))
+    return spend_checkpoints(_faab(), leagues, **kwargs)
+
+
+def _spent(spend, owner, through_week, total=False):
+    return spend.filter(
+        (pl.col("owner_id") == owner)
+        & (pl.col("through_week") == through_week)
+        & (pl.col("is_season_total") == total)
+    ).row(0, named=True)
+
+
+def test_spend_counts_winning_bids_not_trades():
+    spend = _spend(checkpoints=(1, 2))
+    assert spend.columns == list(SPEND_COLUMNS)
+    assert _spent(spend, "u1", 1)["spent"] == 100
+    # Week 2's $25 trade isn't spending.
+    assert _spent(spend, "u1", 2)["spent"] == 100
+    assert _spent(spend, "u1", 3, total=True)["spent"] == 100
+    assert _spent(spend, "u1", 1)["pct_of_budget"] == pytest.approx(0.1)
+
+
+def test_spend_rank_and_chopped_week():
+    spend = _spend(checkpoints=(2,))
+    assert _spent(spend, "u1", 2)["rank"] == 1
+    assert _spent(spend, "u2", 2)["rank"] == 2
+    assert _spent(spend, "u3", 2)["chopped_week"] == 2
+    assert _spent(spend, "u3", 2)["spent"] == 0
+
+
+def test_checkpoint_past_the_last_week():
+    # Finished season: week 16 equals the season total.
+    done = _spent(_spend(checkpoints=(16,)), "u1", 16)
+    assert (done["reached"], done["spent"]) == (True, 100)
+    # Season in progress: week 16 hasn't happened.
+    live = _spent(_spend("in_season", checkpoints=(16,)), "u1", 16)
+    assert (live["reached"], live["spent"], live["rank"]) == (False, None, None)
+
+
+def test_alive_only_drops_chopped_managers():
+    spend = _spend(checkpoints=(2,), alive_only=True)
+    assert "u3" not in spend.filter(pl.col("through_week") == 2)["owner_id"].to_list()
+
+
+def test_league_burndown_bands_sum_to_the_starting_budget():
+    burndown = league_burndown(_faab(), LEAGUES)
+    assert burndown["week"].to_list() == [0, 1, 2, 3]
+    assert set(burndown["total"]) == {3000}
+    week2 = burndown.filter(pl.col("week") == 2).row(0, named=True)
+    # Roster 3 was chopped in week 2 holding $1,025 (it received $25).
+    assert week2["lost_to_chop"] == 1025
+    assert week2["spent"] == 150
+    assert week2["held_by_alive"] == 875 + 950
+
+
+def test_spend_and_burndown_renders_write_pngs(tmp_path):
+    assert render_spend_leaderboard(_spend(), tmp_path / "s.png").stat().st_size
+    burndown = league_burndown(_faab(), LEAGUES)
+    assert render_league_burndown(burndown, tmp_path / "b.png").stat().st_size

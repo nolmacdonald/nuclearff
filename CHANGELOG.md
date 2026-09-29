@@ -35,6 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stopping at the roster's elimination week. `faab_check` reports any roster
   whose rebuilt total disagrees with Sleeper's `waiver_budget_used`.
   `report.render_faab_remaining` draws a step chart per team.
+- `chopped.faab.spend_checkpoints` (#224): FAAB spent (winning bids only)
+  per manager through weeks 4/8/12/16 and the season, with rank and chop
+  week. A checkpoint past the last week equals the season total once the
+  season is complete, and is "not reached" while it's in progress.
+  `league_burndown` splits the league's FAAB each week into spent, held by
+  teams still alive, and lost to the chop; the three always sum to the
+  starting total. `report.render_spend_leaderboard` and
+  `render_league_burndown` draw them. `chopped_leagues` now also returns the
+  league's `status`.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

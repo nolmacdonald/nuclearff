@@ -223,3 +223,217 @@ def faab_check(
         )
         .sort(["season", "league_id", "roster_id"])
     )
+
+
+# -------------------------------------------------------------------------------------
+# SPENDING LEADERBOARD AND LEAGUE BURNDOWN (#224)
+# -------------------------------------------------------------------------------------
+
+DEFAULT_CHECKPOINTS = (4, 8, 12, 16)
+"""Weeks :func:`spend_checkpoints` reports cumulative spending through."""
+
+SPEND_COLUMNS = (
+    "league_id",
+    "season",
+    "owner_id",
+    "manager",
+    "through_week",
+    "spent",
+    "pct_of_budget",
+    "rank",
+    "chopped_week",
+    "reached",
+    "is_season_total",
+)
+"""Columns of :func:`spend_checkpoints`'s output."""
+
+
+def spend_checkpoints(
+    faab: pl.DataFrame,
+    leagues: pl.DataFrame,
+    *,
+    checkpoints: tuple[int, ...] = DEFAULT_CHECKPOINTS,
+    alive_only: bool = False,
+) -> pl.DataFrame:
+    """Who spent the most FAAB, through each checkpoint week and the season.
+
+    **Spending means winning bids only.** FAAB traded between teams is a
+    transfer, not spending, and would double-count league-wide.
+
+    Args:
+        faab: :func:`faab_by_week`'s output.
+        leagues: ``sleeper_leagues`` rows (budget and season status).
+        checkpoints: Weeks to report spending through.
+        alive_only: Leave out managers already chopped by a checkpoint.
+            By default they stay, with their spending frozen at the chop.
+
+    Returns:
+        Columns :data:`SPEND_COLUMNS`, one row per manager per checkpoint plus
+        one season-total row (``is_season_total``, ``through_week`` = the last
+        week with data). ``rank`` is 1 for the biggest spender (ties share
+        it). ``chopped_week`` is set when the manager was chopped at or
+        before ``through_week``. **Past the last week:** in a finished season
+        a checkpoint beyond the final week equals the season total
+        (``reached`` true); in a season still in progress it hasn't happened
+        yet, so ``reached`` is false and ``spent``/``rank`` are null.
+    """
+    info = require_chopped_leagues(leagues).select(
+        "league_id", "waiver_budget", "status"
+    )
+    keys = ["league_id", "season", "owner_id", "manager"]
+    per_manager = (
+        faab.filter(pl.col("owner_id").is_not_null())
+        .group_by(keys)
+        .agg(
+            pl.col("week").max().alias("_last_week"),
+            pl.col("week").filter(pl.col("chopped")).first().alias("_chop"),
+            pl.struct("week", "spent_this_week").alias("_weeks"),
+        )
+    )
+    final_week = faab.group_by("league_id").agg(pl.col("week").max().alias("_final"))
+    rows = []
+    joined = per_manager.join(final_week, on="league_id").join(info, on="league_id")
+    for row in joined.iter_rows(named=True):
+        complete = row["status"] == "complete"
+        targets = [(week, False) for week in checkpoints] + [(row["_final"], True)]
+        for week, is_total in targets:
+            reached = is_total or complete or week <= row["_final"]
+            spent = sum(
+                w["spent_this_week"] for w in row["_weeks"] if w["week"] <= week
+            )
+            chopped = row["_chop"] if row["_chop"] and row["_chop"] <= week else None
+            rows.append(
+                {
+                    "league_id": row["league_id"],
+                    "season": row["season"],
+                    "owner_id": row["owner_id"],
+                    "manager": row["manager"],
+                    "through_week": week,
+                    "spent": spent if reached else None,
+                    "pct_of_budget": spent / row["waiver_budget"] if reached else None,
+                    "chopped_week": chopped,
+                    "reached": reached,
+                    "is_season_total": is_total,
+                }
+            )
+    schema = {
+        "league_id": pl.String,
+        "season": pl.Int64,
+        "owner_id": pl.String,
+        "manager": pl.String,
+        "through_week": pl.Int64,
+        "spent": pl.Int64,
+        "pct_of_budget": pl.Float64,
+        "chopped_week": pl.Int64,
+        "reached": pl.Boolean,
+        "is_season_total": pl.Boolean,
+    }
+    frame = pl.DataFrame(rows, schema=schema)
+    if alive_only:
+        frame = frame.filter(pl.col("chopped_week").is_null())
+    group = ["league_id", "through_week", "is_season_total"]
+    return (
+        frame.with_columns(
+            pl.col("spent")
+            .rank(method="min", descending=True)
+            .over(group)
+            .cast(pl.Int64)
+            .alias("rank")
+        )
+        .select(SPEND_COLUMNS)
+        .sort(["season", "league_id", "is_season_total", "through_week", "rank"])
+    )
+
+
+BURNDOWN_COLUMNS = (
+    "league_id",
+    "season",
+    "week",
+    "spent",
+    "held_by_alive",
+    "lost_to_chop",
+    "total",
+)
+"""Columns of :func:`league_burndown`'s output."""
+
+
+def league_burndown(faab: pl.DataFrame, leagues: pl.DataFrame) -> pl.DataFrame:
+    """The league's total FAAB after each week, split three ways.
+
+    Args:
+        faab: :func:`faab_by_week`'s output.
+        leagues: ``sleeper_leagues`` rows (budget, roster count).
+
+    Returns:
+        Columns :data:`BURNDOWN_COLUMNS`, one row per league per week from 0
+        (the start of the season):
+
+        - ``spent``: cumulative winning bids, league-wide;
+        - ``held_by_alive``: FAAB remaining on rosters still alive after that
+          week's chop, the buying power left for chopped rosters' players;
+        - ``lost_to_chop``: FAAB a roster still had when it was chopped,
+          which leaves the game with it.
+
+        ``total`` is their sum, the league's starting FAAB every week (FAAB
+        traded between teams nets to zero).
+    """
+    info = require_chopped_leagues(leagues).select(
+        "league_id", "season", "waiver_budget"
+    )
+    rosters = faab.group_by(["league_id", "roster_id"]).agg(
+        pl.col("week").max().alias("_last"),
+        pl.col("chopped").last().alias("_was_chopped"),
+    )
+    weeks = (
+        faab.group_by("league_id")
+        .agg(pl.int_ranges(0, pl.col("week").max() + 1).first().alias("week"))
+        .explode("week", empty_as_null=True)
+    )
+    grid = (
+        weeks.join(rosters, on="league_id")
+        .join(
+            faab.select(
+                "league_id", "roster_id", "week", "remaining", "spent_this_week"
+            ),
+            on=["league_id", "roster_id", "week"],
+            how="left",
+        )
+        .join(info, on="league_id")
+        .sort(["league_id", "roster_id", "week"])
+        .with_columns(
+            # After a roster's last row its balance is frozen (chopped) and it
+            # spends nothing more.
+            pl.col("remaining")
+            .fill_null(strategy="forward")
+            .over(["league_id", "roster_id"])
+            .fill_null(pl.col("waiver_budget")),
+            pl.col("spent_this_week").fill_null(0),
+        )
+        .with_columns(
+            pl.col("spent_this_week")
+            .cum_sum()
+            .over(["league_id", "roster_id"])
+            .alias("_spent"),
+            (pl.col("_was_chopped") & (pl.col("week") >= pl.col("_last"))).alias(
+                "_gone"
+            ),
+        )
+    )
+    return (
+        grid.group_by(["league_id", "season", "week"])
+        .agg(
+            pl.col("_spent").sum().alias("spent"),
+            pl.col("remaining").filter(~pl.col("_gone")).sum().alias("held_by_alive"),
+            pl.col("remaining").filter(pl.col("_gone")).sum().alias("lost_to_chop"),
+        )
+        .with_columns(
+            pl.col("spent", "held_by_alive", "lost_to_chop").cast(pl.Int64),
+        )
+        .with_columns(
+            (pl.col("spent") + pl.col("held_by_alive") + pl.col("lost_to_chop")).alias(
+                "total"
+            )
+        )
+        .select(BURNDOWN_COLUMNS)
+        .sort(["season", "league_id", "week"])
+    )

@@ -4,8 +4,10 @@ from nuclearff.report.bracket import render_bracket_tree, render_playoff_bracket
 from nuclearff.report.build import write_report
 from nuclearff.report.chopped import (
     render_faab_remaining,
+    render_league_burndown,
     render_luck_scatter,
     render_luck_table,
+    render_spend_leaderboard,
     render_weekly_finishes,
 )
 from nuclearff.report.draft import render_draft_order_table
@@ -42,6 +44,7 @@ __all__ = [
     "render_draft_board",
     "render_draft_order_table",
     "render_faab_remaining",
+    "render_league_burndown",
     "render_luck_scatter",
     "render_luck_table",
     "render_manager_pair_leaderboard",
@@ -50,6 +53,7 @@ __all__ = [
     "render_playoff_brackets",
     "render_position_table",
     "render_season_performance_table",
+    "render_spend_leaderboard",
     "render_trade_leaderboard",
     "render_trade_network",
     "render_trade_partner_diversity",

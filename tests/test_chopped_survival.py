@@ -74,6 +74,7 @@ def _leagues(league_type: int = 3, last_chopped_leg: int = 3) -> pl.DataFrame:
                 "league_id": LEAGUE_ID,
                 "season": 2025,
                 "total_rosters": 4,
+                "status": "complete",
                 "settings": json.dumps(settings),
             }
         ]
@@ -122,6 +123,7 @@ def test_chopped_leagues_reads_budget_and_last_chop_from_settings():
         "total_rosters": 4,
         "waiver_budget": 1000,
         "last_chopped_leg": 3,
+        "status": "complete",
     }
 
 
