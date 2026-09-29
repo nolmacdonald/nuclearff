@@ -1,7 +1,7 @@
 """Typed configuration models for paths, runs, and the projection model.
 
 These are the settings nuclearff owns. League settings are a separate concern:
-they are fetched from Sleeper and modelled in ``nuclearff.config`` alongside
+they are fetched from Sleeper and modeled in ``nuclearff.config`` alongside
 these once the league configuration lands.
 
 All models forbid unknown keys so a typo in a YAML file fails immediately
