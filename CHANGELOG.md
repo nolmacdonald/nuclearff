@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
+  `production` environment's variables (`vars.*`) instead of secrets (#210).
+
 ## [0.1.0] - 2026-09-24
 
 ### Added

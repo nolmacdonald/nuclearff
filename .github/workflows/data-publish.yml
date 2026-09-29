@@ -43,11 +43,11 @@ jobs:
     environment: production
 
     env:
-      # STORAGE_BUCKET/STORAGE_ENDPOINT_URL aren't sensitive, but they're
-      # provisioned as secrets (not variables) on this environment -- read
-      # from secrets.* to match what's actually there.
-      STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
-      STORAGE_ENDPOINT_URL: ${{ secrets.STORAGE_ENDPOINT_URL }}
+      # The bucket name and endpoint URL aren't sensitive, so they're
+      # environment variables (vars.*), not secrets (#210). Only the keys are
+      # secrets.
+      STORAGE_BUCKET: ${{ vars.STORAGE_BUCKET }}
+      STORAGE_ENDPOINT_URL: ${{ vars.STORAGE_ENDPOINT_URL }}
       STORAGE_ACCESS_KEY_ID: ${{ secrets.STORAGE_ACCESS_KEY_ID }}
       STORAGE_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_SECRET_ACCESS_KEY }}
 
