@@ -66,12 +66,14 @@ def _title(ax: Any, title: str, subtitle: str | None, *, size: float = 14) -> No
         )
 
 
-def _save(fig: Any, out_path: str | Path, what: str, count: int) -> Path:
-    """Write ``fig`` to ``out_path`` as PNG and close it."""
+def _save(
+    fig: Any, out_path: str | Path, what: str, count: int, dpi: int = 200
+) -> Path:
+    """Write ``fig`` to ``out_path`` as PNG at ``dpi`` and close it."""
     plt = _pyplot()
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, facecolor="white", dpi=200, bbox_inches="tight")
+    fig.savefig(out_path, facecolor="white", dpi=dpi, bbox_inches="tight")
     plt.close(fig)
     logger.info("Wrote %s (%d %s)", out_path, count, what)
     return out_path
@@ -85,6 +87,7 @@ def _render_table(
     title: str,
     subtitle: str | None,
     what: str,
+    dpi: int = 200,
 ) -> Path:
     """Render ``rows`` as a plottable table.
 
@@ -97,6 +100,7 @@ def _render_table(
         title: Table title.
         subtitle: Italic caption under the title.
         what: What a row is, for the log line.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -144,7 +148,7 @@ def _render_table(
         ax=ax,
     )
     _title(ax, title, subtitle, size=17)
-    return _save(fig, out_path, what, len(frame))
+    return _save(fig, out_path, what, len(frame), dpi)
 
 
 def _fmt(value: Any, spec: str, missing: str = "—") -> str:
@@ -163,6 +167,7 @@ def render_luck_table(
     *,
     title: str = "Chopped Survival Luck",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Render :func:`nuclearff.chopped.luck.survival_luck` as a table.
 
@@ -172,6 +177,7 @@ def render_luck_table(
         out_path: Destination PNG path.
         title: Table title.
         subtitle: Caption; by default it says which way means lucky.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -210,6 +216,7 @@ def render_luck_table(
         or "↑ higher = luckier, ↓ lower = luckier. Z and rank CV skip weeks with "
         "fewer than 5 teams alive.",
         what="managers",
+        dpi=dpi,
     )
 
 
@@ -219,6 +226,7 @@ def render_luck_scatter(
     *,
     title: str = "Survival Margin vs. Nail-Biters",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Scatter of average margin (x) against nail-biter ratio (y), per manager.
 
@@ -230,6 +238,7 @@ def render_luck_scatter(
         out_path: Destination PNG path.
         title: Chart title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -279,7 +288,7 @@ def render_luck_scatter(
             arrowprops={"arrowstyle": "-", "color": "#999999", "lw": 0.6},
         )
     _title(ax, title, subtitle or "Top left: small cushions and many close calls")
-    return _save(fig, out_path, "managers", points.height)
+    return _save(fig, out_path, "managers", points.height, dpi)
 
 
 # -------------------------------------------------------------------------------------
@@ -293,6 +302,7 @@ def render_weekly_finishes(
     *,
     title: str = "Top-3 and Bottom-3 Weeks",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Diverging bars: top-3 weeks to the right, bottom-3 weeks to the left.
 
@@ -305,6 +315,7 @@ def render_weekly_finishes(
         out_path: Destination PNG path.
         title: Chart title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -350,7 +361,7 @@ def render_weekly_finishes(
         or "Weeks with 7+ teams alive · top-3 finishes also reflect skill, "
         "not only luck",
     )
-    return _save(fig, out_path, "managers", len(managers))
+    return _save(fig, out_path, "managers", len(managers), dpi)
 
 
 # -------------------------------------------------------------------------------------
@@ -364,6 +375,7 @@ def render_faab_remaining(
     *,
     title: str = "FAAB Remaining After Each Week",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Step chart of each team's FAAB after every week, for one season.
 
@@ -378,6 +390,7 @@ def render_faab_remaining(
         out_path: Destination PNG path.
         title: Chart title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -478,7 +491,7 @@ def render_faab_remaining(
             label.xyann = (4, dy)
             box = label.get_window_extent(renderer)
         placed_boxes.append(box)
-    return _save(fig, out_path, "rosters", rosters.height)
+    return _save(fig, out_path, "rosters", rosters.height, dpi)
 
 
 # -------------------------------------------------------------------------------------
@@ -492,6 +505,7 @@ def render_spend_leaderboard(
     *,
     title: str = "FAAB Spending Leaderboard",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Table of FAAB spent through each checkpoint week and the season.
 
@@ -505,6 +519,7 @@ def render_spend_leaderboard(
         title: Table title.
         subtitle: Caption; by default it notes when the last checkpoint is
             past the season's final week.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -561,7 +576,13 @@ def render_spend_leaderboard(
                 f"{past[0]}+ equals the season total"
             )
     return _render_table(
-        rows, columns, out_path, title=title, subtitle=subtitle, what="managers"
+        rows,
+        columns,
+        out_path,
+        title=title,
+        subtitle=subtitle,
+        what="managers",
+        dpi=dpi,
     )
 
 
@@ -571,6 +592,7 @@ def render_league_burndown(
     *,
     title: str = "League FAAB Burndown",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Stacked area of the league's FAAB after each week, for one season.
 
@@ -585,6 +607,7 @@ def render_league_burndown(
         out_path: Destination PNG path.
         title: Chart title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -624,7 +647,7 @@ def render_league_burndown(
         f"${last['held_by_alive']:,} held, ${last['spent']:,} spent, "
         f"${last['lost_to_chop']:,} lost to the chop",
     )
-    return _save(fig, out_path, "weeks", len(weeks))
+    return _save(fig, out_path, "weeks", len(weeks), dpi)
 
 
 # -------------------------------------------------------------------------------------
@@ -638,6 +661,7 @@ def render_claim_activity(
     *,
     title: str = "Waiver Claim Activity",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Table of claims placed per manager, most to fewest, with failures by reason.
 
@@ -647,6 +671,7 @@ def render_claim_activity(
         out_path: Destination PNG path.
         title: Table title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -686,6 +711,7 @@ def render_claim_activity(
         subtitle=subtitle
         or "Roster-full and over-budget claims never entered a bidding contest",
         what="managers",
+        dpi=dpi,
     )
 
 
@@ -700,6 +726,7 @@ def render_bid_outcomes(
     *,
     title: str = "Waiver Bid Outcomes",
     subtitle: str | None = None,
+    dpi: int = 200,
 ) -> Path:
     """Table of % of bids won and narrow losses per manager, unluckiest first.
 
@@ -709,6 +736,7 @@ def render_bid_outcomes(
         out_path: Destination PNG path.
         title: Table title.
         subtitle: Caption.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -749,4 +777,5 @@ def render_bid_outcomes(
         or "Bids decided by a bidding contest only. 2nd-highest bid = lost with the "
         "top losing bid; tied = matched the winner and lost on waiver order",
         what="managers",
+        dpi=dpi,
     )

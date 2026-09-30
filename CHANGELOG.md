@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manager's second claim on a player they won isn't a lost bid. An `outbid`
   claim with no winner is logged, not dropped. `waiver_claims` gains
   `processed_at`; `report.render_bid_outcomes` draws the table.
+- `examples/scripts/chopped_leagues.py`: fetches a Chopped league and runs
+  every `nuclearff.chopped` analysis, writing 13 plots at 300 dpi to
+  `examples/scripts/figures/chopped/`. The Chopped `render_*` functions and
+  `render_user_leagues_table` take a `dpi` keyword (default 200).
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

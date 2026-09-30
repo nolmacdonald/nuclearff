@@ -319,3 +319,13 @@ def test_outcome_columns_career_and_order():
 def test_render_bid_outcomes_writes_a_png(tmp_path):
     frame = bid_outcomes(waiver_claims(CONTESTS, LEAGUES, STANDINGS))
     assert render_bid_outcomes(frame, tmp_path / "b.png").stat().st_size > 0
+
+
+def test_dpi_scales_the_rendered_png(tmp_path):
+    from PIL import Image
+
+    frame = bid_outcomes(waiver_claims(CONTESTS, LEAGUES, STANDINGS))
+    low = render_bid_outcomes(frame, tmp_path / "low.png", dpi=100)
+    high = render_bid_outcomes(frame, tmp_path / "high.png", dpi=300)
+    with Image.open(low) as low_image, Image.open(high) as high_image:
+        assert high_image.width == pytest.approx(3 * low_image.width, abs=3)
