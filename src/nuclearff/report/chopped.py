@@ -687,3 +687,66 @@ def render_claim_activity(
         or "Roster-full and over-budget claims never entered a bidding contest",
         what="managers",
     )
+
+
+# -------------------------------------------------------------------------------------
+# BID OUTCOMES (#227)
+# -------------------------------------------------------------------------------------
+
+
+def render_bid_outcomes(
+    outcomes: pl.DataFrame,
+    out_path: str | Path,
+    *,
+    title: str = "Waiver Bid Outcomes",
+    subtitle: str | None = None,
+) -> Path:
+    """Table of % of bids won and narrow losses per manager, unluckiest first.
+
+    Args:
+        outcomes: One season (or career) of
+            :func:`nuclearff.chopped.claims.bid_outcomes` output.
+        out_path: Destination PNG path.
+        title: Table title.
+        subtitle: Caption.
+
+    Returns:
+        The path written.
+    """
+    rows = [
+        {
+            "manager": row["manager"],
+            "pct": _fmt(row["pct_bids_won"], ".0%"),
+            "won": f"{row['bids_won']} of {row['bids_decided']}",
+            "contested": str(row["won_contested"]),
+            "uncontested": str(row["won_uncontested"]),
+            "runner_up": str(row["runner_up_losses"]),
+            "tied": (
+                f"{row['tied_losses']} ({row['tied_losses_at_zero']} at $0)"
+                if row["tied_losses"]
+                else "0"
+            ),
+            "margin": _fmt(row["avg_margin_lost_by"], ",.1f"),
+        }
+        for row in outcomes.iter_rows(named=True)
+    ]
+    columns = [
+        ("manager", "MANAGER", 2.4, {"ha": "left", "weight": "bold"}),
+        ("pct", "% WON", 1.2, {"weight": "bold"}),
+        ("won", "WON / DECIDED", 1.9, {}),
+        ("contested", "WON VS. RIVALS", 2.0, {}),
+        ("uncontested", "WON UNOPPOSED", 2.0, {}),
+        ("runner_up", "2ND-HIGHEST BID", 2.2, {"weight": "bold"}),
+        ("tied", "TIED, LOST ON ORDER", 2.6, {}),
+        ("margin", "AVG $ SHORT", 1.6, {}),
+    ]
+    return _render_table(
+        rows,
+        columns,
+        out_path,
+        title=title,
+        subtitle=subtitle
+        or "Bids decided by a bidding contest only. 2nd-highest bid = lost with the "
+        "top losing bid; tied = matched the winner and lost on waiver order",
+        what="managers",
+    )

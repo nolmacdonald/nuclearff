@@ -51,6 +51,7 @@ CLAIM_COLUMNS = (
     "league_id",
     "season",
     "week",
+    "processed_at",
     "transaction_id",
     "roster_id",
     "owner_id",
@@ -114,7 +115,10 @@ def waiver_claims(
         standings: ``sleeper_standings`` rows (owner ids and names).
 
     Returns:
-        Columns :data:`CLAIM_COLUMNS`. A claim adding several players gets
+        Columns :data:`CLAIM_COLUMNS`. ``processed_at`` is when Sleeper
+        processed the claim (``status_updated_at``); Sleeper can run waivers
+        more than once in a week, so it separates those runs. A claim adding
+        several players gets
         one row per player, all with the same ``bid``. ``bid`` is Sleeper's
         ``settings.waiver_bid`` -- kept for losing claims too, which carry
         the real amount bid (verified on the real league: 212 of 422 failed
@@ -137,6 +141,7 @@ def waiver_claims(
                 {
                     "league_id": str(row["league_id"]),
                     "week": row["week"],
+                    "processed_at": row.get("status_updated_at"),
                     "transaction_id": row["transaction_id"],
                     "roster_id": rosters[0] if rosters else None,
                     "player_id": str(player_id),
@@ -148,6 +153,7 @@ def waiver_claims(
     schema = {
         "league_id": pl.String,
         "week": pl.Int64,
+        "processed_at": pl.Datetime("us"),
         "transaction_id": pl.String,
         "roster_id": pl.Int64,
         "player_id": pl.String,
@@ -292,4 +298,214 @@ def claim_activity(
     columns = list(ACTIVITY_COLUMNS) if career else [*keys[:2], *ACTIVITY_COLUMNS]
     return activity.select(columns).sort(
         ["claims_placed", "manager"], descending=[True, False]
+    )
+
+
+# -------------------------------------------------------------------------------------
+# BID OUTCOMES (#227)
+# -------------------------------------------------------------------------------------
+
+OUTCOME_COLUMNS = (
+    "owner_id",
+    "manager",
+    "bids_decided",
+    "bids_won",
+    "pct_bids_won",
+    "won_contested",
+    "won_uncontested",
+    "outbid",
+    "runner_up_losses",
+    "tied_losses",
+    "tied_losses_at_zero",
+    "avg_margin_lost_by",
+    "non_competing",
+)
+"""Columns of :func:`bid_outcomes`'s output after its grouping keys."""
+
+
+def bid_contests(claims: pl.DataFrame) -> pl.DataFrame:
+    """Each bid in a contest for a player, with the contest's winning bid.
+
+    A contest is one player in one waiver run. Sleeper can run waivers more
+    than once in a week (real: player 12529 won by two managers on Nov 8 and
+    Nov 12 of 2025's week 10), so a run is the day a claim was processed
+    (``processed_at``), falling back to the week when that's missing. Only
+    claims decided by
+    bidding count (``won`` and ``outbid``). If a manager claimed the same
+    player more than once in a week, one bid is kept: their winning claim if
+    any (the others lost to their own claim, not to a rival), else their
+    highest.
+
+    Args:
+        claims: :func:`waiver_claims`'s output.
+
+    Returns:
+        ``league_id``, ``season``, ``week``, ``run`` (the processing day),
+        ``player_id``, ``owner_id``,
+        ``manager``, ``bid``, ``outcome``, ``winning_bid``,
+        ``top_losing_bid`` and ``contested`` (someone else bid too). An
+        ``outbid`` claim with no ``won`` claim in its contest has a null
+        ``winning_bid`` (see :func:`orphan_losses`).
+    """
+    contest = ["league_id", "_run", "player_id"]
+    bids = (
+        claims.with_columns(
+            pl.coalesce(
+                pl.col("processed_at").dt.date().cast(pl.String),
+                pl.col("week").cast(pl.String),
+            ).alias("_run")
+        )
+        .filter(
+            pl.col("outcome").is_in(["won", "outbid"])
+            & pl.col("owner_id").is_not_null()
+        )
+        .with_columns(pl.col("bid").fill_null(0))
+        # Keep one bid per manager per contest: the winning claim if there is
+        # one, else the highest. A manager's second claim on a player they
+        # won comes back "claimed by another owner" -- lost to themselves --
+        # which isn't a lost contest (real: Ziltoid11, 2025 week 9).
+        .sort([pl.col("outcome") == "won", pl.col("bid")], descending=True)
+        .unique([*contest, "owner_id"], keep="first", maintain_order=True)
+    )
+    won = pl.col("outcome") == "won"
+    return (
+        bids.with_columns(
+            pl.col("bid").filter(won).max().over(contest).alias("winning_bid"),
+            pl.col("bid").filter(~won).max().over(contest).alias("top_losing_bid"),
+            (pl.len().over(contest) > 1).alias("contested"),
+        )
+        .rename({"_run": "run"})
+        .select(
+            "league_id",
+            "season",
+            "week",
+            "run",
+            "player_id",
+            "owner_id",
+            "manager",
+            "bid",
+            "outcome",
+            "winning_bid",
+            "top_losing_bid",
+            "contested",
+        )
+        .sort(["season", "league_id", "week", "player_id", "bid"])
+    )
+
+
+def orphan_losses(contests: pl.DataFrame) -> pl.DataFrame:
+    """``outbid`` claims whose contest has no winning claim.
+
+    Not seen in the real league (every outbid claim's player was won by
+    someone that same week), but reported rather than dropped if it happens.
+
+    Args:
+        contests: :func:`bid_contests`'s output.
+
+    Returns:
+        The ``outbid`` rows with a null ``winning_bid``.
+    """
+    return contests.filter(
+        (pl.col("outcome") == "outbid") & pl.col("winning_bid").is_null()
+    )
+
+
+def bid_outcomes(
+    claims: pl.DataFrame, *, career: bool = False, include_non_competing: bool = False
+) -> pl.DataFrame:
+    """How often each manager wins the players they bid on, and how narrowly they lose.
+
+    Args:
+        claims: :func:`waiver_claims`'s output.
+        career: Combine every season per owner instead of one row per season.
+        include_non_competing: Count ``roster_full``/``over_budget``/``other``
+            claims as bids not won in ``pct_bids_won``. By default only claims
+            decided by bidding count: those never entered a contest.
+
+    Returns:
+        Per season: ``league_id``, ``season``, then :data:`OUTCOME_COLUMNS`;
+        career: :data:`OUTCOME_COLUMNS`.
+
+        - ``pct_bids_won`` = ``bids_won / bids_decided``;
+          ``won_contested``/``won_uncontested``: whether anyone else bid.
+        - ``runner_up_losses``: ``outbid`` claims that were the **highest
+          losing bid** in their contest (the second-highest bidder); tied
+          losers all count.
+        - ``tied_losses``: ``outbid`` claims that **equaled the winning bid**
+          -- lost on Sleeper's tiebreak (waiver order), not on price.
+          ``tied_losses_at_zero`` is the subset where both bids were $0.
+        - ``avg_margin_lost_by``: winning bid minus the manager's bid,
+          averaged over runner-up losses.
+        - ``non_competing``: roster-full, over-budget and other failed claims.
+
+        Sorted by ``runner_up_losses`` (the unluckiest bidders first).
+    """
+    keys = (
+        ["owner_id", "manager"]
+        if career
+        else ["league_id", "season", "owner_id", "manager"]
+    )
+    contests = bid_contests(claims)
+    orphans = orphan_losses(contests)
+    if orphans.height:
+        logger.warning(
+            "%d outbid claim(s) have no winning claim in the same week", orphans.height
+        )
+
+    won = pl.col("outcome") == "won"
+    lost = pl.col("outcome") == "outbid"
+    runner_up = lost & (pl.col("bid") == pl.col("top_losing_bid"))
+    tied = lost & (pl.col("bid") == pl.col("winning_bid"))
+    stats = contests.group_by(keys).agg(
+        pl.len().alias("bids_decided"),
+        won.sum().alias("bids_won"),
+        (won & pl.col("contested")).sum().alias("won_contested"),
+        (won & ~pl.col("contested")).sum().alias("won_uncontested"),
+        lost.sum().alias("outbid"),
+        runner_up.sum().alias("runner_up_losses"),
+        tied.sum().alias("tied_losses"),
+        (tied & (pl.col("bid") == 0)).sum().alias("tied_losses_at_zero"),
+        (pl.col("winning_bid") - pl.col("bid"))
+        .filter(runner_up)
+        .mean()
+        .alias("avg_margin_lost_by"),
+    )
+    non_competing = (
+        claims.filter(
+            pl.col("outcome").is_in(["roster_full", "over_budget", "other"])
+            & pl.col("owner_id").is_not_null()
+        )
+        .group_by(keys)
+        .agg(pl.col("transaction_id").n_unique().alias("non_competing"))
+    )
+    counts = [
+        "bids_decided",
+        "bids_won",
+        "won_contested",
+        "won_uncontested",
+        "outbid",
+        "runner_up_losses",
+        "tied_losses",
+        "tied_losses_at_zero",
+        "non_competing",
+    ]
+    managers = claims.filter(pl.col("owner_id").is_not_null()).select(keys).unique()
+    outcomes = (
+        managers.join(stats, on=keys, how="left")
+        .join(non_competing, on=keys, how="left")
+        .with_columns(pl.col(counts).fill_null(0).cast(pl.Int64))
+    )
+    denominator = (
+        pl.col("bids_decided") + pl.col("non_competing")
+        if include_non_competing
+        else pl.col("bids_decided")
+    )
+    outcomes = outcomes.with_columns(
+        pl.when(denominator > 0)
+        .then(pl.col("bids_won") / denominator)
+        .alias("pct_bids_won")
+    )
+    columns = list(OUTCOME_COLUMNS) if career else [*keys[:2], *OUTCOME_COLUMNS]
+    return outcomes.select(columns).sort(
+        ["runner_up_losses", "tied_losses", "manager"], descending=[True, True, False]
     )

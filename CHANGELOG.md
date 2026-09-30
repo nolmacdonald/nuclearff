@@ -51,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   manager: claims placed, players bid on, wins, failures by reason,
   free-agent adds, weeks alive and claims per week alive.
   `report.render_claim_activity` draws the table.
+- `chopped.claims.bid_outcomes` (#227): per manager, per season or career,
+  `pct_bids_won` (only claims decided by bidding; `include_non_competing`
+  counts roster-full and over-budget ones too), contested vs. unopposed
+  wins, `runner_up_losses` (the highest losing bid, ties included),
+  `tied_losses` (matched the winner and lost on waiver order, with a
+  `$0` split) and `avg_margin_lost_by`. A contest is one player in one
+  waiver run, so a week Sleeper processed twice is two contests, and a
+  manager's second claim on a player they won isn't a lost bid. An `outbid`
+  claim with no winner is logged, not dropped. `waiver_claims` gains
+  `processed_at`; `report.render_bid_outcomes` draws the table.
 - `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
   Chopped leagues: each roster's `eliminated_leg` and Sleeper's
   `waiver_budget_used`, from the rosters it already fetches.

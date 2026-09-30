@@ -3,6 +3,7 @@
 from nuclearff.report.bracket import render_bracket_tree, render_playoff_brackets
 from nuclearff.report.build import write_report
 from nuclearff.report.chopped import (
+    render_bid_outcomes,
     render_claim_activity,
     render_faab_remaining,
     render_league_burndown,
@@ -38,6 +39,7 @@ from nuclearff.report.user_leagues import (
 from nuclearff.report.wins import render_cumulative_wins
 
 __all__ = [
+    "render_bid_outcomes",
     "render_bracket_tree",
     "render_chord_diagram",
     "render_claim_activity",
