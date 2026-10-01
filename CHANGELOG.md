@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nuclearff.draft.byeweeks.bye_weeks` and `bye_collisions` (#99): derive each
+  NFL team's bye week from `load_schedules` and warn when a draft candidate's
+  bye lands on the same week as two or more same-position players already on a
+  roster. Informational only; it does not affect rankings.
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
