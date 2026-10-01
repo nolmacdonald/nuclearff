@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draft.trades.grade_pick_trade` grades a pick-for-pick trade: each pick is
+  valued as the VORP of the player ranked at that overall pick number (chalk
+  draft order, floored at zero), each side is summed, and the net difference is
+  labeled `favorable`, `fair` or `unfavorable` for the side giving up
+  `picks_given` within a 10% tolerance band. Team needs are not considered
+  (#104).
 - `nflverse.injuries.load_injury_history` wraps `nflreadpy.load_injuries`
   (regular-season rows, keyed by `gsis_id`), and `draft.injuries.injury_risk`
   summarizes a player's `Out` weeks over the last three seasons into an
