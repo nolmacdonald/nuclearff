@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `archive.owner_continuity.owner_transitions` catalogs every season boundary
+  where the `owner_id` of a fixed `roster_id` changed, with the fraction of the
+  old roster's players still on the roster afterward, and flags a change as a
+  `probable_handoff` at 50% or more retained. It builds the catalog only; no
+  existing archive aggregate merges identities across a handoff, and co-owner
+  promotion is not distinguished from a stranger taking over (#153).
 - `draft.preview.preview_roster` projects a roster's floor, median and ceiling
   of season points by summing each player's Monte Carlo season
   (`simulate_player_season`). Players are simulated independently, which
