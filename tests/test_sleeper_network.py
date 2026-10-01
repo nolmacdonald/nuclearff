@@ -8,12 +8,18 @@ from __future__ import annotations
 
 import logging
 
+import polars as pl
 import pytest
 import responses
 
 from nuclearff.exceptions import SleeperHTTPError
 from nuclearff.sleeper import SleeperClient
-from nuclearff.sleeper.network import crawl_user_network
+from nuclearff.sleeper.network import (
+    MAX_CONSECUTIVE_FAILURES,
+    chopped_network_summary,
+    crawl_chopped_network,
+    crawl_user_network,
+)
 from tests.conftest import TEST_BASE_URL
 
 
@@ -320,3 +326,206 @@ def test_crawl_stops_before_max_hops_once_no_new_leagues_are_found(client):
     network = crawl_user_network(client, "seed", 2026, max_hops=5)
 
     assert set(network.users["user_id"].to_list()) == {"U1", "U2"}
+
+
+# --- crawl_chopped_network: Chopped edges only (issue #232) -----------------
+
+
+def _chopped(league_id: str, status: str = "in_season") -> dict:
+    league = _league(league_id, f"Chopped {league_id}", total_rosters=16)
+    league["status"] = status
+    league["settings"] = {"type": 3}
+    return league
+
+
+def _dynasty(league_id: str) -> dict:
+    league = _league(league_id, f"Dynasty {league_id}", total_rosters=12)
+    league["settings"] = {"type": 2}
+    return league
+
+
+def _members_calls(league_id: str) -> int:
+    url = f"{TEST_BASE_URL}/v1/league/{league_id}/users"
+    return sum(1 for call in responses.calls if call.request.url == url)
+
+
+@responses.activate
+def test_chopped_crawl_expands_only_chopped_leagues(client):
+    """The dynasty leagues are recorded but their members are never fetched --
+    an unregistered members URL for them would raise."""
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1"), _dynasty("L2")])
+    _mock_league_users("L1", [_user("U1", "seed"), _user("U2", "alice")])
+    _mock_user_leagues("U2", [_chopped("L1"), _chopped("L3"), _dynasty("L4")])
+    _mock_league_users("L3", [_user("U2", "alice"), _user("U3", "bob")])
+    _mock_user_leagues("U3", [_chopped("L3")])
+
+    network = crawl_chopped_network(client, "seed", 2026)
+
+    assert set(network.leagues["league_id"]) == {"L1", "L2", "L3", "L4"}
+    assert set(network.leagues.filter(pl.col("is_chopped"))["league_id"]) == {
+        "L1",
+        "L3",
+    }
+    assert set(network.users["user_id"]) == {"U1", "U2", "U3"}
+    assert network.users["expanded"].all()
+    # seed lookup, then leagues and members: U1, L1, U2, L3, U3.
+    assert network.requests == 6
+    assert network.complete
+
+
+@responses.activate
+def test_chopped_crawl_fetches_a_shared_league_once(client):
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+    _mock_league_users("L1", [_user("U1", "seed"), _user("U2", "alice")])
+    _mock_user_leagues("U2", [_chopped("L1")])
+
+    crawl_chopped_network(client, "seed", 2026)
+
+    assert _members_calls("L1") == 1
+
+
+@responses.activate
+def test_chopped_crawl_stops_at_the_request_budget(client):
+    """Budget 3 covers the seed lookup, the seed's leagues and one member
+    list. U2 is discovered but never expanded, so the result is incomplete."""
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+    _mock_league_users("L1", [_user("U1", "seed"), _user("U2", "alice")])
+
+    network = crawl_chopped_network(client, "seed", 2026, max_requests=3)
+
+    assert network.requests == 3
+    assert not network.complete
+    assert set(network.users["user_id"]) == {"U1", "U2"}
+    u2 = network.users.filter(pl.col("user_id") == "U2").row(0, named=True)
+    assert u2["expanded"] is False
+    assert u2["league_count"] is None
+    assert u2["chopped_leagues"] == 1  # still known from L1's member list
+
+
+@responses.activate
+def test_chopped_crawl_budget_can_leave_a_chopped_league_unexpanded(client):
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+
+    network = crawl_chopped_network(client, "seed", 2026, max_requests=2)
+
+    assert network.requests == 2
+    assert not network.complete
+    assert network.users["user_id"].to_list() == ["U1"]
+
+
+@responses.activate
+def test_chopped_crawl_max_hops_zero_lists_only_the_seeds_leagues(client):
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1"), _dynasty("L2")])
+
+    network = crawl_chopped_network(client, "seed", 2026, max_hops=0)
+
+    assert set(network.leagues["league_id"]) == {"L1", "L2"}
+    assert network.users["user_id"].to_list() == ["U1"]
+    assert not network.complete  # L1 is a Chopped league left unexpanded
+
+
+@responses.activate
+def test_chopped_crawl_with_no_chopped_leagues_is_complete(client):
+    _mock_seed()
+    _mock_user_leagues("U1", [_dynasty("L2")])
+
+    network = crawl_chopped_network(client, "seed", 2026, max_hops=0)
+
+    assert network.complete
+    assert network.users["chopped_leagues"].to_list() == [0]
+
+
+@responses.activate
+def test_chopped_crawl_skips_a_user_whose_leagues_fail(client, caplog):
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+    _mock_league_users(
+        "L1", [_user("U1", "seed"), _user("U2", "alice"), _user("U3", "bob")]
+    )
+    responses.get(f"{TEST_BASE_URL}/v1/user/U2/leagues/nfl/2026", status=500)
+    _mock_user_leagues("U3", [_chopped("L1")])
+
+    with caplog.at_level(logging.WARNING):
+        network = crawl_chopped_network(client, "seed", 2026)
+
+    expanded = dict(
+        zip(network.users["user_id"], network.users["expanded"], strict=True)
+    )
+    assert expanded == {"U1": True, "U2": False, "U3": True}
+    assert "U2" in caplog.text
+
+
+@responses.activate
+def test_chopped_crawl_raises_if_the_seeds_leagues_fail(client):
+    _mock_seed()
+    responses.get(f"{TEST_BASE_URL}/v1/user/U1/leagues/nfl/2026", status=500)
+
+    with pytest.raises(SleeperHTTPError):
+        crawl_chopped_network(client, "seed", 2026)
+
+
+@responses.activate
+def test_chopped_summary_counts_and_ranks_by_active_chopped_leagues(client):
+    """U2 is in two active Chopped leagues, U1 in one active and one finished,
+    U3 in one active: U2 first, then U1 (more Chopped leagues overall), then U3."""
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1"), _chopped("L5", status="complete")])
+    _mock_league_users("L1", [_user("U1", "seed"), _user("U2", "alice")])
+    _mock_league_users("L5", [_user("U1", "seed")])
+    _mock_user_leagues("U2", [_chopped("L1"), _chopped("L3"), _dynasty("L4")])
+    _mock_league_users("L3", [_user("U2", "alice"), _user("U3", "bob")])
+    _mock_user_leagues("U3", [_chopped("L3")])
+
+    summary = chopped_network_summary(crawl_chopped_network(client, "seed", 2026))
+
+    assert summary.leagues_found == 4  # L1, L3, L4 and L5
+    assert summary.chopped_leagues == 3
+    assert summary.active_chopped_leagues == 2
+    assert summary.users_found == 3
+    assert summary.users_expanded == 3
+    assert summary.complete
+    assert summary.top_users["user_id"].to_list() == ["U2", "U1", "U3"]
+    assert summary.top_users["active_chopped_leagues"].to_list() == [2, 1, 1]
+    assert summary.top_users["chopped_leagues"].to_list() == [2, 2, 1]
+
+
+@responses.activate
+def test_chopped_summary_top_limits_the_ranking(client):
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+    _mock_league_users("L1", [_user("U1", "seed"), _user("U2", "alice")])
+    _mock_user_leagues("U2", [_chopped("L1")])
+
+    summary = chopped_network_summary(
+        crawl_chopped_network(client, "seed", 2026), top=1
+    )
+
+    assert summary.top_users.height == 1
+
+
+@responses.activate
+def test_chopped_crawl_aborts_after_consecutive_failures(client):
+    """A run of failures means Sleeper is unreachable: raise instead of
+    skipping every remaining user and spending the whole request budget."""
+    _mock_seed()
+    _mock_user_leagues("U1", [_chopped("L1")])
+    members = [_user("U1", "seed")] + [
+        _user(f"X{i}", f"x{i}") for i in range(MAX_CONSECUTIVE_FAILURES + 5)
+    ]
+    _mock_league_users("L1", members)
+    for i in range(MAX_CONSECUTIVE_FAILURES + 5):
+        responses.get(f"{TEST_BASE_URL}/v1/user/X{i}/leagues/nfl/2026", status=500)
+
+    with pytest.raises(SleeperHTTPError):
+        crawl_chopped_network(client, "seed", 2026)
+
+    fetched = [
+        c.request.url for c in responses.calls if "/leagues/nfl/" in c.request.url
+    ]
+    # The seed's own list plus one URL per failed user (the client retries each).
+    assert len(set(fetched)) == MAX_CONSECUTIVE_FAILURES + 1

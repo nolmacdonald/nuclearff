@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `sleeper.network.crawl_chopped_network` (#232): breadth-first crawl of the
+  Chopped-league network reachable from a seed user. It records every league on
+  each discovered user's league list but only expands Chopped leagues
+  (`settings.type == 3`), so the frontier stays small enough to exhaust. A
+  request budget (`max_requests`, default 5,000) bounds it, and the result's
+  `complete` flag says whether the budget or `max_hops` cut it short.
+  `chopped_network_summary` returns leagues found, Chopped leagues, users found
+  and the users with the most active (`in_season`) Chopped leagues.
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
