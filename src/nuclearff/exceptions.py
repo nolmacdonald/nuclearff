@@ -125,3 +125,13 @@ class ObjectStoreError(NuclearffError):
         self.key = key
         detail = f" (key={key!r})" if key is not None else ""
         super().__init__(f"Object store error{detail}: {message}")
+
+
+class ChoppedLeagueError(NuclearffError):
+    """Raised when Chopped-league analytics get data they can't trust.
+
+    Covers a league that isn't Chopped-format at all, missing Chopped
+    context (no ``sleeper_chopped_rosters`` rows to say who was alive), and
+    a week whose chopped roster wasn't the lowest scorer. Raised rather than
+    returning numbers that look right but aren't (epic #223).
+    """

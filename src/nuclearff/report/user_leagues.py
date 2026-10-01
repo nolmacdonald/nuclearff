@@ -62,6 +62,7 @@ def render_user_leagues_table(
     title: str = "User Leagues",
     subtitle: str | None = None,
     cache_dir: str | Path = "data/cache/avatars",
+    dpi: int = 200,
 ) -> Path:
     """Render one user's leagues for a season as a PNG table.
 
@@ -78,6 +79,7 @@ def render_user_leagues_table(
         subtitle: Optional italic line under the title (e.g. the season and
             sport).
         cache_dir: Directory for cached avatar PNGs.
+        dpi: Resolution of the saved PNG.
 
     Returns:
         The path written.
@@ -239,7 +241,7 @@ def render_user_leagues_table(
             ha="left",
             va="bottom",
         )
-    leagues_image = _figure_to_image(fig_leagues)
+    leagues_image = _figure_to_image(fig_leagues, dpi)
     plt.close(fig_leagues)
 
     summary = summarize_league_types(leagues)
@@ -279,7 +281,7 @@ def render_user_leagues_table(
             va="center",
             transform=ax_summary.transAxes,
         )
-    summary_image = _figure_to_image(fig_summary)
+    summary_image = _figure_to_image(fig_summary, dpi)
     plt.close(fig_summary)
 
     width = max(leagues_image.width, summary_image.width)
@@ -291,19 +293,19 @@ def render_user_leagues_table(
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    composite.save(out_path, format="PNG")
+    composite.save(out_path, format="PNG", dpi=(dpi, dpi))
     logger.info("Wrote %s (%d leagues)", out_path, len(frame))
     return out_path
 
 
-def _figure_to_image(fig: Any) -> Any:
-    """Render a matplotlib figure to an in-memory ``PIL.Image``."""
+def _figure_to_image(fig: Any, dpi: int = 200) -> Any:
+    """Render a matplotlib figure to an in-memory ``PIL.Image`` at ``dpi``."""
     from io import BytesIO
 
     from PIL import Image
 
     buf = BytesIO()
-    fig.savefig(buf, format="png", facecolor="white", dpi=200, bbox_inches="tight")
+    fig.savefig(buf, format="png", facecolor="white", dpi=dpi, bbox_inches="tight")
     buf.seek(0)
     return Image.open(buf).convert("RGB")
 
