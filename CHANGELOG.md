@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `nflverse.injuries.load_injury_history` wraps `nflreadpy.load_injuries`
+  (regular-season rows, keyed by `gsis_id`), and `draft.injuries.injury_risk`
+  summarizes a player's `Out` weeks over the last three seasons into an
+  informational caution (two or more seasons with three or more `Out` weeks).
+  The count is a floor: players on injured reserve drop off the weekly report.
+  VORP and VONA are unchanged (#103).
 - `draft.scouting.manager_position_profile` builds a pre-draft scouting report
   from the persisted `sleeper_draft_picks` history: per manager, position, and
   round bucket (1-3, 4-6, 7+), the picks taken and the share of drafted seasons
