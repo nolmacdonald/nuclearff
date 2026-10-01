@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `draft.scouting.manager_position_profile` builds a pre-draft scouting report
+  from the persisted `sleeper_draft_picks` history: per manager, position, and
+  round bucket (1-3, 4-6, 7+), the picks taken and the share of drafted seasons
+  with such a pick. Managers with fewer than three drafted seasons are flagged
+  `small_sample` (#107).
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
