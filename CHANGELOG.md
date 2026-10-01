@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nuclearff.chopped`, Chopped league analytics (epic #223).
+  `chopped.survival.weekly_survival` (#226) builds one row per alive roster
+  per processed week: the chop line (lowest alive score), `margin` and
+  `margin_pct` above it, `rank`/`percentile`, and `z_chop` (margin over the
+  week's population standard deviation). It drops chopped rosters' 0.0-point
+  rows and weeks after `last_chopped_leg`, and raises `ChoppedLeagueError`
+  if a week's chopped roster wasn't its lowest scorer
+  (`chop_line_problems`).
+- `chopped.luck.survival_luck` (#228): per manager, per season or career,
+  the Cumulative Luck Index (`cumulative_margin`, `avg_margin`,
+  `field_relative_margin`), the nail-biter ratio (weeks within 5% of the
+  chop line), razor-thin Z weeks (`0 < z_chop <= 0.3`) and percentile-rank
+  CV. Z and CV skip weeks with fewer than 5 rosters alive
+  (`guard_excluded_weeks` lists them). `report.render_luck_table` and
+  `render_luck_scatter` draw them.
+- `chopped.finishes.weekly_finishes` (#229): weeks each manager finished in
+  the top 3 or bottom 3 of rosters still alive, and close calls (bottom 3
+  but survived). Only weeks with 7+ rosters alive count, so the groups can't
+  overlap; ties count every tied roster. `report.render_weekly_finishes`
+  draws them as diverging bars.
+- `chopped.faab.faab_by_week` (#221): each Chopped roster's FAAB after
+  every week, from the league's own `waiver_budget`, winning bids (a
+  multi-add claim's bid counted once) and FAAB traded between teams,
+  stopping at the roster's elimination week. `faab_check` reports any roster
+  whose rebuilt total disagrees with Sleeper's `waiver_budget_used`.
+  `report.render_faab_remaining` draws a step chart per team.
+- `chopped.faab.spend_checkpoints` (#224): FAAB spent (winning bids only)
+  per manager through weeks 4/8/12/16 and the season, with rank and chop
+  week. A checkpoint past the last week equals the season total once the
+  season is complete, and is "not reached" while it's in progress.
+  `league_burndown` splits the league's FAAB each week into spent, held by
+  teams still alive, and lost to the chop; the three always sum to the
+  starting total. `report.render_spend_leaderboard` and
+  `render_league_burndown` draw them. `chopped_leagues` now also returns the
+  league's `status`.
+- `chopped.claims.waiver_claims` (#225): one row per claimed player per
+  waiver claim, with its bid (losing claims keep their real amount) and an
+  `outcome` from Sleeper's note: `won`, `outbid`, `roster_full`,
+  `over_budget` or `other` (logged). `claim_activity` rolls it up per
+  manager: claims placed, players bid on, wins, failures by reason,
+  free-agent adds, weeks alive and claims per week alive.
+  `report.render_claim_activity` draws the table.
+- `chopped.claims.bid_outcomes` (#227): per manager, per season or career,
+  `pct_bids_won` (only claims decided by bidding; `include_non_competing`
+  counts roster-full and over-budget ones too), contested vs. unopposed
+  wins, `runner_up_losses` (the highest losing bid, ties included),
+  `tied_losses` (matched the winner and lost on waiver order, with a
+  `$0` split) and `avg_margin_lost_by`. A contest is one player in one
+  waiver run, so a week Sleeper processed twice is two contests, and a
+  manager's second claim on a player they won isn't a lost bid. An `outbid`
+  claim with no winner is logged, not dropped. `waiver_claims` gains
+  `processed_at`; `report.render_bid_outcomes` draws the table.
+- `examples/scripts/chopped_leagues.py`: fetches a Chopped league and runs
+  every `nuclearff.chopped` analysis, writing 13 plots at 300 dpi to
+  `examples/scripts/figures/chopped/`. The Chopped `render_*` functions and
+  `render_user_leagues_table` take a `dpi` keyword (default 200).
+- `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
+  Chopped leagues: each roster's `eliminated_leg` and Sleeper's
+  `waiver_budget_used`, from the rosters it already fetches.
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
