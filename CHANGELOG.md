@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nuclearff.archive.scoring_profile.scoring_profile` (#154): one row per
+  season and manager with games played, average points for and against,
+  average margin in wins and in losses, and each manager's largest blowout and
+  closest result in both directions. Byes count toward points but have no
+  margin, and ties enter no margin statistic.
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
