@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `draft.stacking`: `stack_candidates` surfaces available WR/TE on the same NFL
+  team as a QB already on the roster, and `handcuff_candidates` surfaces
+  available same-team RBs behind a rostered RB. Candidates are surfaced only;
+  they are not ranked against the general recommendation ranking (#98).
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
