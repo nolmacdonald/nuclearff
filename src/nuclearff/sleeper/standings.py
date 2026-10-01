@@ -160,6 +160,38 @@ CREATE TABLE IF NOT EXISTS {table} (
 """
 
 
+CHOPPED_ROSTERS_TABLE_NAME = "sleeper_chopped_rosters"
+"""Default table name for each Chopped-league roster's elimination leg and FAAB used.
+
+Used by :func:`fetch_and_write_standings`, for Chopped-format leagues only
+(:func:`is_chopped_league`). ``sleeper_standings.final_rank`` is derived from
+``roster.settings.eliminated`` but doesn't keep the leg itself, which the
+Chopped analytics (epic #223, issues #221/#226) need. Another sibling table
+rather than a new standings column, for the same reason as
+:data:`AVATARS_TABLE_NAME`."""
+
+_CHOPPED_ROSTERS_COLUMNS = (
+    "league_id",
+    "season",
+    "roster_id",
+    "owner_id",
+    "eliminated_leg",
+    "waiver_budget_used",
+)
+
+_CHOPPED_ROSTERS_CREATE_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS {table} (
+    league_id VARCHAR,
+    season INTEGER,
+    roster_id INTEGER,
+    owner_id VARCHAR,
+    eliminated_leg INTEGER,
+    waiver_budget_used INTEGER,
+    PRIMARY KEY (league_id, roster_id)
+)
+"""
+
+
 def _points(settings: dict[str, Any], base_key: str) -> float | None:
     """Combine Sleeper's split whole/decimal points fields into one float.
 
@@ -449,6 +481,49 @@ def user_avatar_rows(
     return rows
 
 
+def chopped_roster_rows(
+    league_id: str, season: int | None, rosters: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Build :data:`CHOPPED_ROSTERS_TABLE_NAME` rows for one Chopped season.
+
+    Args:
+        league_id: The season's Sleeper league identifier.
+        season: The season year.
+        rosters: Raw roster objects, as returned by
+            :meth:`SleeperClient.get_rosters` -- the same list already fetched
+            for :func:`standings_rows`, no new Sleeper call needed.
+
+    Returns:
+        One row per roster with an integer ``roster_id``. ``eliminated_leg``
+        is ``roster.settings.eliminated`` (the week it was chopped), ``None``
+        for a roster still alive or the league's winner.
+        ``waiver_budget_used`` is Sleeper's own running FAAB total for the
+        roster *as of the fetch*, not per week -- kept as a cross-check for
+        FAAB rebuilt from transactions (#221).
+    """
+    rows: list[dict[str, Any]] = []
+    for roster in rosters:
+        roster_id = roster.get("roster_id")
+        if not isinstance(roster_id, int):
+            continue
+        settings = roster.get("settings")
+        if not isinstance(settings, dict):
+            settings = {}
+        eliminated = settings.get("eliminated")
+        used = settings.get("waiver_budget_used")
+        rows.append(
+            {
+                "league_id": league_id,
+                "season": season,
+                "roster_id": roster_id,
+                "owner_id": roster.get("owner_id"),
+                "eliminated_leg": eliminated if isinstance(eliminated, int) else None,
+                "waiver_budget_used": used if isinstance(used, int) else None,
+            }
+        )
+    return rows
+
+
 def _read_existing(db_path: str | Path, table_name: str) -> pl.DataFrame:
     """Read already-cached rows for ``table_name``, tolerating a first-ever run.
 
@@ -475,6 +550,7 @@ def fetch_and_write_standings(
     table_name: str = STANDINGS_TABLE_NAME,
     matches_table_name: str = MATCHES_TABLE_NAME,
     avatars_table_name: str = AVATARS_TABLE_NAME,
+    chopped_rosters_table_name: str = CHOPPED_ROSTERS_TABLE_NAME,
 ) -> tuple[int, int]:
     """Fetch rosters/users/brackets for every league in a chain and persist standings.
 
@@ -509,15 +585,21 @@ def fetch_and_write_standings(
         matches_table_name: Destination table for raw playoff matches.
         avatars_table_name: Destination table for manager avatar ids (see
             the module docstring's "Avatar caching" note).
+        chopped_rosters_table_name: Destination table for each Chopped
+            roster's elimination leg and FAAB used
+            (:func:`chopped_roster_rows`). Only Chopped-format leagues write
+            rows here.
 
     Returns:
-        A ``(standings_rows_written, match_rows_written)`` tuple. Avatar
-        rows are written too, logged but not returned -- a purely additive
-        side effect, not part of this function's existing contract.
+        A ``(standings_rows_written, match_rows_written)`` tuple. Avatar and
+        Chopped-roster rows are written too, logged but not returned -- a
+        purely additive side effect, not part of this function's existing
+        contract.
     """
     existing_standings = _read_existing(db_path, table_name)
     existing_matches = _read_existing(db_path, matches_table_name)
     existing_avatars = _read_existing(db_path, avatars_table_name)
+    existing_chopped = _read_existing(db_path, chopped_rosters_table_name)
     cached_league_ids = (
         set(existing_standings["league_id"].to_list())
         & set(existing_matches["league_id"].to_list())
@@ -547,6 +629,7 @@ def fetch_and_write_standings(
     standings: list[dict[str, Any]] = []
     matches: list[dict[str, Any]] = []
     avatars: list[dict[str, Any]] = []
+    chopped_rosters: list[dict[str, Any]] = []
 
     for league in leagues:
         league_id = str(league["league_id"])
@@ -562,6 +645,13 @@ def fetch_and_write_standings(
             if existing_avatars.height:
                 avatars.extend(
                     existing_avatars.filter(pl.col("league_id") == league_id).to_dicts()
+                )
+            # A Chopped league has no bracket, so it never has match rows and
+            # never takes this cached path; carried over anyway so a cached
+            # league can never lose rows here.
+            if existing_chopped.height:
+                chopped_rosters.extend(
+                    existing_chopped.filter(pl.col("league_id") == league_id).to_dicts()
                 )
             continue
 
@@ -598,6 +688,8 @@ def fetch_and_write_standings(
         )
         matches.extend(bracket_match_rows(league_id, season, "losers", losers_bracket))
         avatars.extend(user_avatar_rows(league_id, season, users))
+        if chopped:
+            chopped_rosters.extend(chopped_roster_rows(league_id, season, rosters))
 
     league_ids = [str(league["league_id"]) for league in leagues]
     standings_count = merge_table(
@@ -628,11 +720,26 @@ def fetch_and_write_standings(
         key_values=league_ids,
     )
 
+    chopped_count = merge_table(
+        db_path,
+        chopped_rosters_table_name,
+        _CHOPPED_ROSTERS_CREATE_TABLE_SQL,
+        _CHOPPED_ROSTERS_COLUMNS,
+        [
+            [row[column] for column in _CHOPPED_ROSTERS_COLUMNS]
+            for row in chopped_rosters
+        ],
+        key_column="league_id",
+        key_values=league_ids,
+    )
+
     logger.info(
-        "Wrote %d standings, %d playoff match, and %d avatar row(s) to %s",
+        "Wrote %d standings, %d playoff match, %d avatar and %d Chopped roster "
+        "row(s) to %s",
         standings_count,
         matches_count,
         avatars_count,
+        chopped_count,
         db_path,
     )
     return standings_count, matches_count

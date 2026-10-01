@@ -9,15 +9,15 @@ actually acquired (:func:`manager_waiver_spend`/:func:`career_waiver_spend`,
 #133). No new Sleeper fetching — ``settings.waiver_bid`` and ``adds`` are
 already persisted per transaction.
 
-**Real data limitation (#133): a losing claim's dollar amount may not be
-real.** This project's one real captured failed-waiver-claim example
-(``tests/test_sleeper_transactions.py::WAIVER_FAILED``) has
-``settings.waiver_bid == 0``, while the real captured successful claim in
-the same file has ``waiver_bid == 16`` — a single sample, not proof, but it
-points at Sleeper not preserving the actual bid on a claim a manager lost.
-:func:`manager_waiver_spend` builds ``total_spent`` from winning
-(``status == "complete"``) claims only, and surfaces ``failed_claims`` as a
-count-only "attempts" signal with no claimed dollar figure attached.
+**Losing claims keep their real dollar amount (settled in #227).** #133
+worried, from one captured failed claim with ``settings.waiver_bid == 0``
+(``tests/test_sleeper_transactions.py::WAIVER_FAILED``), that Sleeper
+erases the bid on a lost claim. It doesn't: on the real Chopped league,
+212 of 422 failed 2025 claims carry a nonzero ``waiver_bid``, and the
+``$0`` ones are real ``$0`` bids. This module still builds ``total_spent``
+from winning (``status == "complete"``) claims only, since a lost claim
+costs nothing, and reports ``failed_claims`` as a count; per-claim bids
+for losses live in :mod:`nuclearff.chopped.claims`.
 
 **Multi-add claims are excluded everywhere in this module, not guessed
 at.** Sleeper's ``adds`` field is a dict, so a single waiver transaction

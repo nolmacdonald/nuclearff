@@ -15,6 +15,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `probable_handoff` at 50% or more retained. It builds the catalog only; no
   existing archive aggregate merges identities across a handoff, and co-owner
   promotion is not distinguished from a stranger taking over (#153).
+- `draft.preview.preview_roster` projects a roster's floor, median and ceiling
+  of season points by summing each player's Monte Carlo season
+  (`simulate_player_season`). Players are simulated independently, which
+  narrows the band relative to correlated teammates; the result states that
+  assumption in an `assumption` column. Bench and start/sit are not modeled
+  (#97).
+- `draft.trades.grade_pick_trade` grades a pick-for-pick trade: each pick is
+  valued as the VORP of the player ranked at that overall pick number (chalk
+  draft order, floored at zero), each side is summed, and the net difference is
+  labeled `favorable`, `fair` or `unfavorable` for the side giving up
+  `picks_given` within a 10% tolerance band. Team needs are not considered
+  (#104).
+- `nflverse.injuries.load_injury_history` wraps `nflreadpy.load_injuries`
+  (regular-season rows, keyed by `gsis_id`), and `draft.injuries.injury_risk`
+  summarizes a player's `Out` weeks over the last three seasons into an
+  informational caution (two or more seasons with three or more `Out` weeks).
+  The count is a floor: players on injured reserve drop off the weekly report.
+  VORP and VONA are unchanged (#103).
+- `draft.scouting.manager_position_profile` builds a pre-draft scouting report
+  from the persisted `sleeper_draft_picks` history: per manager, position, and
+  round bucket (1-3, 4-6, 7+), the picks taken and the share of drafted seasons
+  with such a pick. Managers with fewer than three drafted seasons are flagged
+  `small_sample` (#107).
+- `draft.stacking`: `stack_candidates` surfaces available WR/TE on the same NFL
+  team as a QB already on the roster, and `handcuff_candidates` surfaces
+  available same-team RBs behind a rostered RB. Candidates are surfaced only;
+  they are not ranked against the general recommendation ranking (#98).
+- `nuclearff.archive.scoring_profile.scoring_profile` (#154): one row per
+  season and manager with games played, average points for and against,
+  average margin in wins and in losses, and each manager's largest blowout and
+  closest result in both directions. Byes count toward points but have no
+  margin, and ties enter no margin statistic.
+- `nuclearff.draft.byeweeks.bye_weeks` and `bye_collisions` (#99): derive each
+  NFL team's bye week from `load_schedules` and warn when a draft candidate's
+  bye lands on the same week as two or more same-position players already on a
+  roster. Informational only; it does not affect rankings.
+- `nuclearff.chopped`, Chopped league analytics (epic #223).
+  `chopped.survival.weekly_survival` (#226) builds one row per alive roster
+  per processed week: the chop line (lowest alive score), `margin` and
+  `margin_pct` above it, `rank`/`percentile`, and `z_chop` (margin over the
+  week's population standard deviation). It drops chopped rosters' 0.0-point
+  rows and weeks after `last_chopped_leg`, and raises `ChoppedLeagueError`
+  if a week's chopped roster wasn't its lowest scorer
+  (`chop_line_problems`).
+- `chopped.luck.survival_luck` (#228): per manager, per season or career,
+  the Cumulative Luck Index (`cumulative_margin`, `avg_margin`,
+  `field_relative_margin`), the nail-biter ratio (weeks within 5% of the
+  chop line), razor-thin Z weeks (`0 < z_chop <= 0.3`) and percentile-rank
+  CV. Z and CV skip weeks with fewer than 5 rosters alive
+  (`guard_excluded_weeks` lists them). `report.render_luck_table` and
+  `render_luck_scatter` draw them.
+- `chopped.finishes.weekly_finishes` (#229): weeks each manager finished in
+  the top 3 or bottom 3 of rosters still alive, and close calls (bottom 3
+  but survived). Only weeks with 7+ rosters alive count, so the groups can't
+  overlap; ties count every tied roster. `report.render_weekly_finishes`
+  draws them as diverging bars.
+- `chopped.faab.faab_by_week` (#221): each Chopped roster's FAAB after
+  every week, from the league's own `waiver_budget`, winning bids (a
+  multi-add claim's bid counted once) and FAAB traded between teams,
+  stopping at the roster's elimination week. `faab_check` reports any roster
+  whose rebuilt total disagrees with Sleeper's `waiver_budget_used`.
+  `report.render_faab_remaining` draws a step chart per team.
+- `chopped.faab.spend_checkpoints` (#224): FAAB spent (winning bids only)
+  per manager through weeks 4/8/12/16 and the season, with rank and chop
+  week. A checkpoint past the last week equals the season total once the
+  season is complete, and is "not reached" while it's in progress.
+  `league_burndown` splits the league's FAAB each week into spent, held by
+  teams still alive, and lost to the chop; the three always sum to the
+  starting total. `report.render_spend_leaderboard` and
+  `render_league_burndown` draw them. `chopped_leagues` now also returns the
+  league's `status`.
+- `chopped.claims.waiver_claims` (#225): one row per claimed player per
+  waiver claim, with its bid (losing claims keep their real amount) and an
+  `outcome` from Sleeper's note: `won`, `outbid`, `roster_full`,
+  `over_budget` or `other` (logged). `claim_activity` rolls it up per
+  manager: claims placed, players bid on, wins, failures by reason,
+  free-agent adds, weeks alive and claims per week alive.
+  `report.render_claim_activity` draws the table.
+- `chopped.claims.bid_outcomes` (#227): per manager, per season or career,
+  `pct_bids_won` (only claims decided by bidding; `include_non_competing`
+  counts roster-full and over-budget ones too), contested vs. unopposed
+  wins, `runner_up_losses` (the highest losing bid, ties included),
+  `tied_losses` (matched the winner and lost on waiver order, with a
+  `$0` split) and `avg_margin_lost_by`. A contest is one player in one
+  waiver run, so a week Sleeper processed twice is two contests, and a
+  manager's second claim on a player they won isn't a lost bid. An `outbid`
+  claim with no winner is logged, not dropped. `waiver_claims` gains
+  `processed_at`; `report.render_bid_outcomes` draws the table.
+- `examples/scripts/chopped_leagues.py`: fetches a Chopped league and runs
+  every `nuclearff.chopped` analysis, writing 13 plots at 300 dpi to
+  `examples/scripts/figures/chopped/`. The Chopped `render_*` functions and
+  `render_user_leagues_table` take a `dpi` keyword (default 200).
+- `fetch_and_write_standings` also writes `sleeper_chopped_rosters` for
+  Chopped leagues: each roster's `eliminated_leg` and Sleeper's
+  `waiver_budget_used`, from the rosters it already fetches.
 
 ### Changed
 

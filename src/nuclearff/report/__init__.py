@@ -2,6 +2,16 @@
 
 from nuclearff.report.bracket import render_bracket_tree, render_playoff_brackets
 from nuclearff.report.build import write_report
+from nuclearff.report.chopped import (
+    render_bid_outcomes,
+    render_claim_activity,
+    render_faab_remaining,
+    render_league_burndown,
+    render_luck_scatter,
+    render_luck_table,
+    render_spend_leaderboard,
+    render_weekly_finishes,
+)
 from nuclearff.report.draft import render_draft_order_table
 from nuclearff.report.draft_board import render_draft_board
 from nuclearff.report.on_this_day import render_on_this_day_table
@@ -29,18 +39,25 @@ from nuclearff.report.user_leagues import (
 from nuclearff.report.wins import render_cumulative_wins
 
 __all__ = [
+    "render_bid_outcomes",
     "render_bracket_tree",
     "render_chord_diagram",
+    "render_claim_activity",
     "render_cumulative_trades",
     "render_cumulative_wins",
     "render_draft_board",
     "render_draft_order_table",
+    "render_faab_remaining",
+    "render_league_burndown",
+    "render_luck_scatter",
+    "render_luck_table",
     "render_manager_pair_leaderboard",
     "render_manager_season_heatmap",
     "render_on_this_day_table",
     "render_playoff_brackets",
     "render_position_table",
     "render_season_performance_table",
+    "render_spend_leaderboard",
     "render_trade_leaderboard",
     "render_trade_network",
     "render_trade_partner_diversity",
@@ -48,6 +65,7 @@ __all__ = [
     "render_trades_heatmap",
     "render_trades_over_time",
     "render_user_leagues_table",
+    "render_weekly_finishes",
     "render_weekly_performance_table",
     "summarize_league_types",
     "top_n_by_position",
