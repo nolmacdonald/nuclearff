@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draft.stacking`: `stack_candidates` surfaces available WR/TE on the same NFL
+  team as a QB already on the roster, and `handcuff_candidates` surfaces
+  available same-team RBs behind a rostered RB. Candidates are surfaced only;
+  they are not ranked against the general recommendation ranking (#98).
 - `nuclearff.archive.scoring_profile.scoring_profile` (#154): one row per
   season and manager with games played, average points for and against,
   average margin in wins and in losses, and each manager's largest blowout and
