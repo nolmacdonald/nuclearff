@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `nflverse.injuries.load_injury_history` wraps `nflreadpy.load_injuries`
+  (regular-season rows, keyed by `gsis_id`), and `draft.injuries.injury_risk`
+  summarizes a player's `Out` weeks over the last three seasons into an
+  informational caution (two or more seasons with three or more `Out` weeks).
+  The count is a floor: players on injured reserve drop off the weekly report.
+  VORP and VONA are unchanged (#103).
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
