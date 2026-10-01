@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draft.preview.preview_roster` projects a roster's floor, median and ceiling
+  of season points by summing each player's Monte Carlo season
+  (`simulate_player_season`). Players are simulated independently, which
+  narrows the band relative to correlated teammates; the result states that
+  assumption in an `assumption` column. Bench and start/sit are not modeled
+  (#97).
 - `draft.trades.grade_pick_trade` grades a pick-for-pick trade: each pick is
   valued as the VORP of the player ranked at that overall pick number (chalk
   draft order, floored at zero), each side is summed, and the net difference is
