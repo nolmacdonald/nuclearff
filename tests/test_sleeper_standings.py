@@ -15,9 +15,11 @@ import responses
 from nuclearff.sleeper import SleeperClient
 from nuclearff.sleeper.standings import (
     AVATARS_TABLE_NAME,
+    CHOPPED_ROSTERS_TABLE_NAME,
     MATCHES_TABLE_NAME,
     STANDINGS_TABLE_NAME,
     bracket_match_rows,
+    chopped_roster_rows,
     fetch_and_write_standings,
     is_chopped_league,
     resolve_chopped_final_ranks,
@@ -595,6 +597,66 @@ def test_fetch_and_write_standings_handles_a_chopped_league(client, tmp_path, ca
         )
     assert ranks[14] == 1
     assert ranks[11] == 16
+
+    # The elimination leg itself is kept too, for the Chopped analytics (#226).
+    with duckdb.connect(str(db_path)) as conn:
+        legs = dict(
+            conn.execute(
+                f"SELECT roster_id, eliminated_leg FROM {CHOPPED_ROSTERS_TABLE_NAME}"
+            ).fetchall()
+        )
+    assert len(legs) == 16
+    assert legs[14] is None  # the winner
+    assert legs[11] == 1
+    assert legs[2] == 15
+
+
+def test_chopped_roster_rows_keeps_leg_and_faab_used():
+    rosters = [
+        {"roster_id": 1, "owner_id": "u1", "settings": {"waiver_budget_used": 333}},
+        {
+            "roster_id": 2,
+            "owner_id": "u2",
+            "settings": {"eliminated": 3, "waiver_budget_used": 1000},
+        },
+        {"roster_id": "bad", "settings": {}},
+    ]
+    assert chopped_roster_rows("L", 2026, rosters) == [
+        {
+            "league_id": "L",
+            "season": 2026,
+            "roster_id": 1,
+            "owner_id": "u1",
+            "eliminated_leg": None,
+            "waiver_budget_used": 333,
+        },
+        {
+            "league_id": "L",
+            "season": 2026,
+            "roster_id": 2,
+            "owner_id": "u2",
+            "eliminated_leg": 3,
+            "waiver_budget_used": 1000,
+        },
+    ]
+
+
+@responses.activate
+def test_fetch_and_write_standings_writes_no_chopped_rows_for_a_normal_league(
+    client, tmp_path
+):
+    normal = {**CHOPPED_LEAGUE, "settings": {"type": 0}}
+    for endpoint in ("rosters", "users", "winners_bracket", "losers_bracket"):
+        responses.get(
+            f"{TEST_BASE_URL}/v1/league/{CHOPPED_LEAGUE_ID}/{endpoint}", json=[]
+        )
+    db_path = tmp_path / "nuclearff.duckdb"
+    fetch_and_write_standings(client, [normal], db_path)
+    with duckdb.connect(str(db_path)) as conn:
+        count = conn.execute(
+            f"SELECT count(*) FROM {CHOPPED_ROSTERS_TABLE_NAME}"
+        ).fetchone()
+    assert count == (0,)
 
 
 @responses.activate
