@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `draft.scouting.manager_position_profile` builds a pre-draft scouting report
+  from the persisted `sleeper_draft_picks` history: per manager, position, and
+  round bucket (1-3, 4-6, 7+), the picks taken and the share of drafted seasons
+  with such a pick. Managers with fewer than three drafted seasons are flagged
+  `small_sample` (#107).
 - `draft.stacking`: `stack_candidates` surfaces available WR/TE on the same NFL
   team as a QB already on the roster, and `handcuff_candidates` surfaces
   available same-team RBs behind a rostered RB. Candidates are surfaced only;
