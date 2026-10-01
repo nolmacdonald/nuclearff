@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `nuclearff.archive.scoring_profile.scoring_profile` (#154): one row per
+  season and manager with games played, average points for and against,
+  average margin in wins and in losses, and each manager's largest blowout and
+  closest result in both directions. Byes count toward points but have no
+  margin, and ties enter no margin statistic.
 - `nuclearff.draft.byeweeks.bye_weeks` and `bye_collisions` (#99): derive each
   NFL team's bye week from `load_schedules` and warn when a draft candidate's
   bye lands on the same week as two or more same-position players already on a
