@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `draft.preview.preview_roster` projects a roster's floor, median and ceiling
+  of season points by summing each player's Monte Carlo season
+  (`simulate_player_season`). Players are simulated independently, which
+  narrows the band relative to correlated teammates; the result states that
+  assumption in an `assumption` column. Bench and start/sit are not modeled
+  (#97).
+
 ### Changed
 
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
