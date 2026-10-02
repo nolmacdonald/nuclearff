@@ -19,7 +19,6 @@ from nuclearff.sleeper.models import (
     LeagueSnapshot,
     SnapshotMetadata,
 )
-from nuclearff.sleeper.network import UserNetwork, crawl_user_network
 from nuclearff.sleeper.players import player_rows, write_players_table
 from nuclearff.sleeper.projections import (
     fetch_and_write_projections,
@@ -62,9 +61,7 @@ __all__ = [
     "LeagueSnapshot",
     "SleeperClient",
     "SnapshotMetadata",
-    "UserNetwork",
     "bracket_match_rows",
-    "crawl_user_network",
     "cumulative_trade_counts",
     "detect_anomalies",
     "draft_order_stats",

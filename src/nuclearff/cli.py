@@ -58,7 +58,6 @@ from nuclearff.nflverse import load_ff_playerids
 from nuclearff.provenance import git_commit_sha
 from nuclearff.sleeper import (
     SleeperClient,
-    crawl_user_network,
     fetch_and_write_all_drafts,
     fetch_and_write_matchups,
     fetch_and_write_projections_range,
@@ -73,7 +72,6 @@ from nuclearff.sleeper import (
 )
 from nuclearff.sleeper.leagues import DEFAULT_MAX_SEASONS
 from nuclearff.sleeper.matchups import DEFAULT_MAX_WEEK
-from nuclearff.sleeper.network import DEFAULT_MAX_HOPS, DEFAULT_MAX_USERS
 
 logger = logging.getLogger(__name__)
 
@@ -458,69 +456,6 @@ def _cmd_sleeper_user_drafts(args: argparse.Namespace) -> int:
             f"  {draft.get('draft_id')}  {league_name}  "
             f"status={draft.get('status')}  type={draft.get('type')}"
         )
-    return EXIT_OK
-
-
-def _cmd_sleeper_user_network(args: argparse.Namespace) -> int:
-    """Crawl the Sleeper network reachable from a seed user and print a summary.
-
-    See :func:`nuclearff.sleeper.network.crawl_user_network` -- the seed
-    user's own leagues, then (by default) every co-member of those leagues
-    and their own leagues in turn. Also writes the three result frames
-    (leagues, users, memberships) as CSVs so the "detailed stats table"
-    survives past the terminal (issue #209).
-
-    Args:
-        args: Parsed arguments carrying ``username``, ``season``, ``sport``,
-            ``max_hops``, ``max_users``, and ``out_dir``.
-
-    Returns:
-        An exit code.
-    """
-    config = _resolve_config(args)
-    config.paths.ensure()
-
-    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
-        network = crawl_user_network(
-            client,
-            args.username,
-            args.season,
-            sport=args.sport,
-            max_hops=args.max_hops,
-            max_users=args.max_users,
-        )
-
-    seed = network.users.filter(pl.col("user_id") == network.seed_user_id).row(
-        0, named=True
-    )
-    print(f"User:    {seed['display_name']} ({network.seed_user_id})")
-    print(
-        f"Network: {network.leagues.height} leagues, "
-        f"{network.users.height} users (max_hops={args.max_hops}, "
-        f"{args.sport} {args.season})"
-    )
-    print("\nTop leagues by known overlap:")
-    top_leagues = network.leagues.sort("known_member_count", descending=True).head(10)
-    for row in top_leagues.iter_rows(named=True):
-        print(
-            f"  {row['league_id']}  {row['name']}  "
-            f"known={row['known_member_count']}/{row['total_rosters']}  "
-            f"hop={row['hop']}"
-        )
-
-    out_dir = (
-        Path(args.out_dir)
-        if args.out_dir
-        else config.paths.artifacts_dir
-        / "user-network"
-        / f"{network.seed_user_id}-{args.season}"
-    )
-    out_dir.mkdir(parents=True, exist_ok=True)
-    network.leagues.write_csv(out_dir / "leagues.csv")
-    network.users.write_csv(out_dir / "users.csv")
-    network.memberships.write_csv(out_dir / "memberships.csv")
-    print(f"\nWrote {out_dir}/{{leagues,users,memberships}}.csv")
-
     return EXIT_OK
 
 
@@ -1072,51 +1007,6 @@ def _cmd_report_user_leagues(args: argparse.Namespace) -> int:
 
     print(f"User:    {display_name} ({user['user_id']})")
     print(f"Leagues: {written}")
-    return EXIT_OK
-
-
-def _cmd_report_user_network(args: argparse.Namespace) -> int:
-    """Crawl the Sleeper network reachable from a seed user and render a PNG.
-
-    Args:
-        args: Parsed arguments carrying ``username``, ``season``, ``sport``,
-            ``max_hops``, ``max_users``, and ``out``.
-
-    Returns:
-        An exit code.
-    """
-    from nuclearff.report.user_network import render_user_network
-
-    config = _resolve_config(args)
-    config.paths.ensure()
-
-    with SleeperClient(cache_dir=config.paths.cache_dir) as client:
-        network = crawl_user_network(
-            client,
-            args.username,
-            args.season,
-            sport=args.sport,
-            max_hops=args.max_hops,
-            max_users=args.max_users,
-        )
-
-    seed = network.users.filter(pl.col("user_id") == network.seed_user_id).row(
-        0, named=True
-    )
-    out_path = (
-        Path(args.out)
-        if args.out
-        else config.paths.artifacts_dir
-        / f"{network.seed_user_id}-network"
-        / f"{args.season}.png"
-    )
-    written = render_user_network(
-        network, out_path, title=f"{seed['display_name']}'s Network"
-    )
-
-    print(f"User:    {seed['display_name']} ({network.seed_user_id})")
-    print(f"Network: {network.leagues.height} leagues, {network.users.height} users")
-    print(f"Wrote:   {written}")
     return EXIT_OK
 
 
@@ -2261,39 +2151,6 @@ def build_parser() -> argparse.ArgumentParser:
     user_drafts.add_argument("--sport", default="nfl", help="Sport key (default: nfl)")
     user_drafts.set_defaults(func=_cmd_sleeper_user_drafts)
 
-    user_network = sleeper_commands.add_parser(
-        "user-network",
-        help="Crawl the Sleeper network reachable from a seed user",
-    )
-    user_network.add_argument("username", help="Sleeper username or user id")
-    user_network.add_argument("--season", required=True, help="Season year, e.g. 2026")
-    user_network.add_argument("--sport", default="nfl", help="Sport key (default: nfl)")
-    user_network.add_argument(
-        "--max-hops",
-        type=int,
-        default=DEFAULT_MAX_HOPS,
-        help=(
-            "Rounds of user -> co-members -> their leagues beyond the "
-            f"seed's own leagues (default: {DEFAULT_MAX_HOPS}). Each extra "
-            "hop multiplies the API call count."
-        ),
-    )
-    user_network.add_argument(
-        "--max-users",
-        type=int,
-        default=DEFAULT_MAX_USERS,
-        help=f"Hard cap on discovered users (default: {DEFAULT_MAX_USERS})",
-    )
-    user_network.add_argument(
-        "--out-dir",
-        default=None,
-        help=(
-            "Output directory for leagues/users/memberships CSVs "
-            "(default: <artifacts>/user-network/<user_id>-<season>/)"
-        ),
-    )
-    user_network.set_defaults(func=_cmd_sleeper_user_network)
-
     trending = sleeper_commands.add_parser(
         "trending", help="Print trending players by adds or drops"
     )
@@ -2616,39 +2473,6 @@ def build_parser() -> argparse.ArgumentParser:
         help=("Output PNG path (default: <artifacts>/<user_id>-leagues/<season>.png)"),
     )
     user_leagues_report.set_defaults(func=_cmd_report_user_leagues)
-
-    user_network_report = report_commands.add_parser(
-        "user-network",
-        help="Render the Sleeper network reachable from a seed user as a PNG",
-    )
-    user_network_report.add_argument("username", help="Sleeper username or user id")
-    user_network_report.add_argument(
-        "--season", required=True, help="Season year, e.g. 2026"
-    )
-    user_network_report.add_argument(
-        "--sport", default="nfl", help="Sport key (default: nfl)"
-    )
-    user_network_report.add_argument(
-        "--max-hops",
-        type=int,
-        default=DEFAULT_MAX_HOPS,
-        help=(
-            "Rounds of user -> co-members -> their leagues "
-            f"(default: {DEFAULT_MAX_HOPS})"
-        ),
-    )
-    user_network_report.add_argument(
-        "--max-users",
-        type=int,
-        default=DEFAULT_MAX_USERS,
-        help=f"Hard cap on discovered users (default: {DEFAULT_MAX_USERS})",
-    )
-    user_network_report.add_argument(
-        "--out",
-        default=None,
-        help="Output PNG path (default: <artifacts>/<user_id>-network/<season>.png)",
-    )
-    user_network_report.set_defaults(func=_cmd_report_user_network)
 
     return parser
 

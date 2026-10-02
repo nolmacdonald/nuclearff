@@ -116,6 +116,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `data-publish.yml` reads `STORAGE_BUCKET` and `STORAGE_ENDPOINT_URL` from the
   `production` environment's variables (`vars.*`) instead of secrets (#210).
 
+### Removed
+
+- The Sleeper user and league network crawler moved to the `sena` repository:
+  `nuclearff.sleeper.network` (`crawl_user_network`, `UserNetwork`),
+  `nuclearff.report.user_network` (`render_user_network`), and the
+  `sleeper user-network` and `report user-network` commands, with their tests
+  (#239).
+
 ## [0.1.0] - 2026-09-24
 
 ### Added
