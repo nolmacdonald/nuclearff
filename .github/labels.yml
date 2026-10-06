@@ -1,23 +1,23 @@
 # Type labels
 - name: "type::bug"
-  color: "d73a4a"
-  description: "Something is broken or behaves unexpectedly"
+  color: "d7263d"
+  description: "A feature or function is broken or not behaving correctly."
 
 - name: "type::feature"
-  color: "5c6bc0"
-  description: "New feature or capability request"
+  color: "19a4b8"
+  description: "New capability independent of the existing codebase."
 
 - name: "type::enhancement"
-  color: "7986cb"
-  description: "Improvement to an existing feature"
+  color: "2da7e0"
+  description: "Improvement to existing functionality."
 
 - name: "type::documentation"
-  color: "0075ca"
-  description: "Documentation additions or corrections"
+  color: "10a62f"
+  description: "New documentation or updates needed."
 
 - name: "type::refactor"
-  color: "e4e669"
-  description: "Code refactoring with no behavior change"
+  color: "9b51e0"
+  description: "Internal code cleanup with no user-facing change."
 
 - name: "type::ci"
   color: "bfd4f2"
@@ -29,53 +29,19 @@
 
 - name: "type::dependencies"
   color: "0366d6"
-  description: "Dependency updates"
+  description: "Dependency or GitHub Actions version bump."
 
 - name: "type::research"
   color: "c5def5"
   description: "Investigation or methodology question, resolved with a decision note"
 
-# Status labels
-- name: "status::needs-triage"
-  color: "e4e669"
-  description: "Awaiting triage by a maintainer"
+- name: "type::epic"
+  color: "3e4b9e"
+  description: "Tracking issue that groups related work."
 
-- name: "status::in-progress"
-  color: "fbca04"
-  description: "Actively being worked on"
-
-- name: "status::blocked"
-  color: "b60205"
-  description: "Blocked by another issue or external factor"
-
-- name: "status::ready-for-review"
-  color: "0e8a16"
-  description: "Ready for maintainer review"
-
-- name: "status::needs-changes"
-  color: "e99695"
-  description: "Review completed – changes requested"
-
-- name: "status::wont-fix"
-  color: "ffffff"
-  description: "Out of scope or intentionally not fixed"
-
-# Priority labels
-- name: "priority::critical"
-  color: "b60205"
-  description: "Must be resolved immediately"
-
-- name: "priority::high"
-  color: "d93f0b"
-  description: "High priority – address soon"
-
-- name: "priority::medium"
-  color: "fbca04"
-  description: "Medium priority – normal queue"
-
-- name: "priority::low"
-  color: "0e8a16"
-  description: "Low priority – address when possible"
+- name: "type::regression"
+  color: "c2185b"
+  description: "Previously working behavior is now broken."
 
 # Area labels
 - name: "area::api"
@@ -87,12 +53,12 @@
   description: "Documentation area"
 
 - name: "area::ci"
-  color: "d4c5f9"
-  description: "CI/CD area"
+  color: "7057ff"
+  description: "CI and GitHub Actions workflows."
 
 - name: "area::packaging"
-  color: "fef2c0"
-  description: "Build, packaging and release"
+  color: "5319e7"
+  description: "Python packaging, dependencies and lockfile."
 
 - name: "area::data"
   color: "c2e0c6"
@@ -110,7 +76,81 @@
   color: "bfd4f2"
   description: "Tables, figures, CLI output and artifacts"
 
-# Milestone labels (see PART C / PART E of the technical plan)
+- name: "area::chopped"
+  color: "b60205"
+  description: "Chopped (guillotine) league analytics."
+
+# Status labels
+- name: "status::needs-triage"
+  color: "e4e669"
+  description: "Awaiting triage by a maintainer"
+
+- name: "status::in-progress"
+  color: "fbca04"
+  description: "Actively being worked on"
+
+- name: "status::blocked"
+  color: "eb5757"
+  description: "Work cannot continue due to dependency or external issue."
+
+- name: "status::ready-for-review"
+  color: "0e8a16"
+  description: "Ready for maintainer review"
+
+- name: "status::needs-changes"
+  color: "e99695"
+  description: "Review completed \u2013 changes requested"
+
+- name: "status::wont-fix"
+  color: "ffffff"
+  description: "Out of scope or intentionally not fixed"
+
+- name: "status::clarification-needed"
+  color: "f2c94c"
+  description: "More information required from reporter."
+
+- name: "status::complete"
+  color: "00a65a"
+  description: "Completed or resolved."
+
+- name: "status::cooking"
+  color: "9b51e0"
+  description: "Development in progress."
+
+- name: "status::duplicate"
+  color: "bdbdbd"
+  description: "Already tracked elsewhere."
+
+- name: "status::needs-review"
+  color: "36b9e8"
+  description: "Needs technical or managerial review."
+
+- name: "status::open"
+  color: "2f80ed"
+  description: "Issue created and awaiting work."
+
+- name: "status::ready"
+  color: "2d9cdb"
+  description: "Ready to begin work."
+
+# Priority labels
+- name: "priority::critical"
+  color: "e55353"
+  description: "Act now or production could be impacted negatively."
+
+- name: "priority::high"
+  color: "f2994a"
+  description: "Requires prompt attention."
+
+- name: "priority::medium"
+  color: "f2c94c"
+  description: "Important but not urgent."
+
+- name: "priority::low"
+  color: "6fcf97"
+  description: "Would be nice to resolve someday."
+
+# Milestone labels
 - name: "milestone::mvp"
   color: "0e8a16"
   description: "MVP milestone (issues 1-11)"
@@ -122,3 +162,44 @@
 - name: "milestone::draft-ready"
   color: "5c6bc0"
   description: "Draft-ready milestone (issues 20-23)"
+
+# GitHub default labels
+- name: "accessibility"
+  color: "f143ab"
+  description: "Barrier affecting people with disabilities"
+
+- name: "bug"
+  color: "d73a4a"
+  description: "Something isn't working"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Improvements or additions to documentation"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "This issue or pull request already exists"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or request"
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed"
+
+- name: "invalid"
+  color: "e4e669"
+  description: "This doesn't seem right"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
