@@ -85,7 +85,12 @@ Issues are the unit of planned work. Each issue defines **Problem**, **Scope**,
 
 ### Labels
 
-Labels are defined in `.github/labels.yml`:
+Labels are defined in `.github/labels.yml` and synced to GitHub by
+`.github/workflows/labels.yml` on every push to `main` that changes that file.
+Edit the YAML, not the GitHub UI: labels missing from the file are removed on
+the next sync.
+
+The groups are:
 
 - `type::*` — bug, feature, enhancement, documentation, refactor, ci, test,
   dependencies, research
